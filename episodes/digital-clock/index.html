@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Digital Clock</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    background: radial-gradient(ellipse at center, #0a1020 0%, #05060a 100%);
+    font-family: 'SF Mono', 'Consolas', 'Menlo', monospace;
+    color: #eaf6ff;
+    overflow: hidden;
+  }
+  .wrap {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1.2rem;
+  }
+  #time {
+    font-size: clamp(3rem, 16vw, 11rem);
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    line-height: 1;
+    color: #7fdfff;
+    text-shadow:
+      0 0 8px rgba(127, 223, 255, 0.9),
+      0 0 24px rgba(80, 180, 255, 0.7),
+      0 0 60px rgba(40, 130, 255, 0.5);
+  }
+  #time .sec {
+    color: #4aa8ff;
+    font-size: 0.5em;
+    vertical-align: top;
+    text-shadow:
+      0 0 6px rgba(74, 168, 255, 0.9),
+      0 0 20px rgba(40, 130, 255, 0.6);
+  }
+  #date {
+    font-size: clamp(0.9rem, 3.2vw, 1.6rem);
+    letter-spacing: 0.35em;
+    text-transform: uppercase;
+    color: #8fa3c0;
+    text-shadow: 0 0 12px rgba(80, 140, 220, 0.4);
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div id="time">--:--</div>
+    <div id="date">&nbsp;</div>
+  </div>
+  <script>
+    const timeEl = document.getElementById('time');
+    const dateEl = document.getElementById('date');
+    const pad = n => String(n).padStart(2, '0');
+
+    function tick() {
+      const now = new Date();
+      timeEl.innerHTML =
+        pad(now.getHours()) + ':' + pad(now.getMinutes()) +
+        '<span class="sec">' + pad(now.getSeconds()) + '</span>';
+      dateEl.textContent = now.toLocaleDateString(undefined, {
+        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+      });
+    }
+
+    tick();
+    setInterval(tick, 1000);
+  </script>
+</body>
+</html>
