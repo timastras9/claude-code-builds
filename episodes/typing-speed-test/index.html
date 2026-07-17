@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Typing Speed Test</title>
+<style>
+  :root{
+    --bg:#111116;
+    --sub:#3a3a44;      /* untyped text */
+    --text:#d1d0c5;     /* caret / accent */
+    --correct:#8fce8f;  /* green */
+    --wrong:#ca4754;    /* red */
+    --wrong-bg:#5a2a2f;
+    --accent:#e2b714;   /* monkeytype yellow */
+    --panel:#1a1a20;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:"SF Mono",ui-monospace,"Roboto Mono",Menlo,Consolas,monospace;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    min-height:100vh;
+    padding:24px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{width:100%;max-width:900px}
+
+  header{
+    display:flex;align-items:center;gap:10px;
+    margin-bottom:32px;color:var(--sub);
+    font-size:20px;font-weight:600;letter-spacing:.5px;
+  }
+  header .dot{color:var(--accent)}
+
+  .stats{
+    display:flex;gap:40px;margin-bottom:22px;
+    color:var(--accent);font-size:15px;height:56px;align-items:center;
+    opacity:0;transition:opacity .3s;
+  }
+  .stats.show{opacity:1}
+  .stat .num{font-size:30px;line-height:1;color:var(--accent)}
+  .stat .lbl{font-size:12px;color:var(--sub);margin-top:4px;text-transform:uppercase;letter-spacing:1px}
+  .stat.time .num{color:var(--text)}
+
+  /* text display */
+  .text-box{
+    position:relative;
+    font-size:26px;
+    line-height:44px;
+    height:132px;               /* 3 lines */
+    overflow:hidden;
+    color:var(--sub);
+    letter-spacing:.5px;
+    cursor:text;
+    user-select:none;
+  }
+  .text-inner{position:relative;transition:transform .15s ease-out}
+  .char{position:relative}
+  .char.correct{color:var(--correct)}
+  .char.wrong{color:var(--wrong)}
+  .char.wrong.space{background:var(--wrong-bg);border-radius:3px}
+  .char.current::before{
+    content:"";position:absolute;left:-2px;top:6px;
+    width:2px;height:30px;background:var(--accent);
+    border-radius:2px;animation:blink 1s steps(1) infinite;
+  }
+  @keyframes blink{50%{opacity:0}}
+
+  #input{position:absolute;opacity:0;pointer-events:none;left:-9999px}
+
+  .hint{margin-top:34px;color:var(--sub);font-size:14px;text-align:center;height:20px}
+  .hint kbd{
+    background:var(--panel);border:1px solid #2a2a33;border-radius:5px;
+    padding:2px 8px;color:var(--text);font-size:12px;
+  }
+
+  /* results card */
+  .overlay{
+    position:fixed;inset:0;background:rgba(10,10,14,.85);
+    backdrop-filter:blur(4px);
+    display:none;align-items:center;justify-content:center;z-index:10;
+  }
+  .overlay.show{display:flex;animation:fade .3s}
+  @keyframes fade{from{opacity:0}}
+  .card{
+    background:var(--panel);border:1px solid #26262f;border-radius:16px;
+    padding:40px 48px;text-align:center;width:min(440px,90vw);
+    box-shadow:0 20px 60px rgba(0,0,0,.5);
+  }
+  .card h2{color:var(--sub);font-size:14px;text-transform:uppercase;letter-spacing:2px;font-weight:600;margin-bottom:8px}
+  .card .big{font-size:80px;color:var(--accent);line-height:1;font-weight:700}
+  .card .big small{font-size:22px;color:var(--sub);margin-left:6px}
+  .grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin:30px 0 34px}
+  .grid .box{background:#15151b;border-radius:10px;padding:14px 8px}
+  .grid .box .v{font-size:24px;color:var(--text)}
+  .grid .box .k{font-size:11px;color:var(--sub);text-transform:uppercase;letter-spacing:1px;margin-top:4px}
+  button.again{
+    background:var(--accent);color:#111;border:none;border-radius:10px;
+    padding:13px 30px;font-size:15px;font-weight:700;cursor:pointer;
+    font-family:inherit;transition:transform .1s,filter .1s;
+  }
+  button.again:hover{filter:brightness(1.08)}
+  button.again:active{transform:scale(.97)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><span class="dot">&#9679;</span> typetest</header>
+
+  <div class="stats" id="stats">
+    <div class="stat"><div class="num" id="s-wpm">0</div><div class="lbl">wpm</div></div>
+    <div class="stat"><div class="num" id="s-acc">100<small>%</small></div><div class="lbl">accuracy</div></div>
+    <div class="stat time"><div class="num" id="s-time">60</div><div class="lbl">seconds</div></div>
+  </div>
+
+  <div class="text-box" id="textBox">
+    <div class="text-inner" id="textInner"></div>
+  </div>
+
+  <div class="hint" id="hint">Start typing to begin the 60-second test &nbsp;&middot;&nbsp; <kbd>Esc</kbd> to restart</div>
+
+  <input id="input" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-hidden="true">
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="card">
+    <h2>Time's up</h2>
+    <div class="big" id="r-wpm">0<small>wpm</small></div>
+    <div class="grid">
+      <div class="box"><div class="v" id="r-acc">0%</div><div class="k">accuracy</div></div>
+      <div class="box"><div class="v" id="r-chars">0</div><div class="k">characters</div></div>
+      <div class="box"><div class="v" id="r-raw">0</div><div class="k">raw wpm</div></div>
+    </div>
+    <button class="again" id="again">try again</button>
+  </div>
+</div>
+
+<script>
+const PARAGRAPHS = [
+  "The quick brown fox jumps over the lazy dog while the sun sets behind the distant hills and the world slowly fades into a quiet and peaceful evening full of gentle shadows.",
+  "Success is not final and failure is not fatal, for it is the courage to continue that truly counts in the long run when the road ahead seems dark and uncertain to everyone.",
+  "A journey of a thousand miles begins with a single step, and every step you take teaches you something new about the path you are walking and the person you are becoming.",
+  "The best way to predict the future is to build it yourself, one small piece at a time, with patience and focus and a willingness to learn from every mistake along the way.",
+  "Reading a good book is like having a long conversation with a wise friend who has thought carefully about the world and wants to share everything they have learned with you.",
+  "The ocean waves crashed against the rocky shore as seagulls circled overhead, calling out to one another in the cool morning air that smelled of salt and distant rain.",
+  "Learning to code is a lot like learning a new language, because at first the words feel strange, but slowly the patterns become clear and you begin to think in new ways.",
+  "In the middle of the ancient forest stood a tall old tree whose branches reached toward the sky, sheltering countless creatures that had made their homes among its leaves.",
+  "Great ideas rarely arrive fully formed, so you must be willing to start with something rough and messy, then shape it patiently until it becomes something you are proud of.",
+  "The city never truly sleeps, for even in the quiet hours before dawn there are people working, dreaming, and moving through the bright streets in search of something more."
+];
+
+const DURATION = 60;
+
+const textInner = document.getElementById('textInner');
+const textBox   = document.getElementById('textBox');
+const input     = document.getElementById('input');
+const statsEl   = document.getElementById('stats');
+const hintEl    = document.getElementById('hint');
+const overlay   = document.getElementById('overlay');
+
+let target = "";
+let charSpans = [];
+let typed = 0;         // total characters typed (position in target)
+let correctCount = 0;  // correctly typed characters (cumulative, incl. corrections)
+let errorCount = 0;    // total incorrect keystrokes ever pressed (for raw calc)
+let started = false;
+let finished = false;
+let startTime = 0;
+let timerId = null;
+let lastLen = 0;
+
+function pickParagraph(){
+  const i = Math.floor(Math.random() * PARAGRAPHS.length);
+  return PARAGRAPHS[i];
+}
+
+function render(){
+  textInner.innerHTML = "";
+  charSpans = [];
+  for(let i=0;i<target.length;i++){
+    const span = document.createElement('span');
+    span.className = 'char';
+    const ch = target[i];
+    span.textContent = ch;
+    if(ch === ' ') span.dataset.space = "1";
+    textInner.appendChild(span);
+    charSpans.push(span);
+  }
+}
+
+function reset(){
+  clearInterval(timerId);
+  target = pickParagraph();
+  typed = 0; correctCount = 0; errorCount = 0;
+  started = false; finished = false; startTime = 0; lastLen = 0;
+  input.value = "";
+  render();
+  updateCaret();
+  textInner.style.transform = 'translateY(0)';
+  statsEl.classList.remove('show');
+  overlay.classList.remove('show');
+  hintEl.style.visibility = 'visible';
+  document.getElementById('s-wpm').textContent = '0';
+  document.getElementById('s-acc').innerHTML = '100<small>%</small>';
+  document.getElementById('s-time').textContent = DURATION;
+  input.focus();
+}
+
+function updateCaret(){
+  for(let i=0;i<charSpans.length;i++) charSpans[i].classList.remove('current');
+  const idx = Math.min(typed, charSpans.length - 1);
+  if(typed < charSpans.length) charSpans[typed].classList.add('current');
+  scrollToLine();
+}
+
+function scrollToLine(){
+  // keep the current character on the top-ish line by shifting whole lines
+  const lineH = 44;
+  const cur = charSpans[Math.min(typed, charSpans.length-1)];
+  if(!cur) return;
+  const offset = cur.offsetTop;               // px from top of inner
+  // once past first line, shift so the active line sits on line 0
+  const shiftLines = Math.max(0, Math.round(offset / lineH));
+  textInner.style.transform = 'translateY(' + (-shiftLines * lineH) + 'px)';
+}
+
+function startTimer(){
+  started = true;
+  startTime = Date.now();
+  statsEl.classList.add('show');
+  hintEl.style.visibility = 'hidden';
+  timerId = setInterval(tick, 200);
+}
+
+function tick(){
+  const elapsed = (Date.now() - startTime) / 1000;
+  const remaining = Math.max(0, DURATION - elapsed);
+  document.getElementById('s-time').textContent = Math.ceil(remaining);
+  updateLiveStats(elapsed);
+  if(remaining <= 0) finish();
+}
+
+function updateLiveStats(elapsed){
+  const minutes = elapsed / 60;
+  const wpm = minutes > 0 ? Math.round((correctCount / 5) / minutes) : 0;
+  const totalKeys = correctCount + errorCount;
+  const acc = totalKeys > 0 ? Math.round((correctCount / totalKeys) * 100) : 100;
+  document.getElementById('s-wpm').textContent = wpm;
+  document.getElementById('s-acc').innerHTML = acc + '<small>%</small>';
+}
+
+input.addEventListener('input', ()=>{
+  if(finished) return;
+  if(!started) startTimer();
+
+  const val = input.value;
+  const len = val.length;
+
+  // Count a new keystroke (only when adding chars, not deleting)
+  if(len > lastLen){
+    const pos = len - 1;                 // index of newest char
+    if(pos < target.length){
+      if(val[pos] === target[pos]) correctCount++;
+      else errorCount++;
+    }
+  }
+  lastLen = len;
+  typed = Math.min(len, target.length);
+
+  // paint states based on current buffer
+  for(let i=0;i<charSpans.length;i++){
+    const span = charSpans[i];
+    span.classList.remove('correct','wrong','space');
+    if(i < len){
+      if(val[i] === target[i]) span.classList.add('correct');
+      else {
+        span.classList.add('wrong');
+        if(target[i] === ' ') span.classList.add('space');
+      }
+    }
+  }
+
+  updateCaret();
+
+  // finished the paragraph early -> loop to a fresh one, keep the clock
+  if(len >= target.length){
+    const keepCorrect = correctCount, keepError = errorCount;
+    target = pickParagraph();
+    render();
+    input.value = "";
+    lastLen = 0; typed = 0;
+    correctCount = keepCorrect; errorCount = keepError;
+    updateCaret();
+  }
+});
+
+function finish(){
+  finished = true;
+  clearInterval(timerId);
+  const minutes = DURATION / 60;
+  const wpm = Math.round((correctCount / 5) / minutes);
+  const totalKeys = correctCount + errorCount;
+  const rawWpm = Math.round((totalKeys / 5) / minutes);
+  const acc = totalKeys > 0 ? Math.round((correctCount / totalKeys) * 100) : 100;
+
+  document.getElementById('r-wpm').innerHTML = wpm + '<small>wpm</small>';
+  document.getElementById('r-acc').textContent = acc + '%';
+  document.getElementById('r-chars').textContent = totalKeys;
+  document.getElementById('r-raw').textContent = rawWpm;
+  overlay.classList.add('show');
+}
+
+// focus management + restart
+textBox.addEventListener('click', ()=> input.focus());
+document.getElementById('again').addEventListener('click', reset);
+document.addEventListener('keydown', (e)=>{
+  if(e.key === 'Escape'){ reset(); return; }
+  if(document.activeElement !== input && !overlay.classList.contains('show')) input.focus();
+});
+window.addEventListener('load', ()=> input.focus());
+
+reset();
+</script>
+</body>
+</html>
