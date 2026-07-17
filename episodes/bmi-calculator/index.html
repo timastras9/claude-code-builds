@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BMI Calculator</title>
+<style>
+  :root {
+    --bg: #0f1225;
+    --card: #191d38;
+    --field: #232848;
+    --line: #313760;
+    --text: #f2f4ff;
+    --muted: #9aa2cc;
+    --accent: #6c8cff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: radial-gradient(1200px 800px at 50% -10%, #1c2247 0%, var(--bg) 60%);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .card {
+    width: 100%;
+    max-width: 420px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: 28px;
+    box-shadow: 0 30px 60px -20px rgba(0,0,0,.6);
+  }
+  h1 {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -.02em;
+    margin-bottom: 4px;
+  }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 22px; }
+
+  .toggle {
+    display: flex;
+    background: var(--field);
+    border-radius: 12px;
+    padding: 4px;
+    margin-bottom: 22px;
+  }
+  .toggle button {
+    flex: 1;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font-size: 14px;
+    font-weight: 600;
+    padding: 10px;
+    border-radius: 9px;
+    cursor: pointer;
+    transition: .18s;
+  }
+  .toggle button.active {
+    background: var(--accent);
+    color: #fff;
+    box-shadow: 0 6px 16px -6px var(--accent);
+  }
+
+  .field { margin-bottom: 18px; }
+  label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .inputs { display: flex; gap: 10px; }
+  .inputwrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    background: var(--field);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 0 14px;
+    transition: border-color .18s;
+  }
+  .inputwrap:focus-within { border-color: var(--accent); }
+  .inputwrap input {
+    flex: 1;
+    width: 100%;
+    background: transparent;
+    border: 0;
+    outline: 0;
+    color: var(--text);
+    font-size: 18px;
+    font-weight: 600;
+    padding: 13px 0;
+  }
+  .inputwrap span { color: var(--muted); font-size: 13px; font-weight: 600; }
+
+  .result {
+    margin-top: 24px;
+    text-align: center;
+    opacity: 0;
+    transform: translateY(6px);
+    transition: .25s;
+  }
+  .result.show { opacity: 1; transform: none; }
+  .bmi-num { font-size: 52px; font-weight: 800; letter-spacing: -.03em; line-height: 1; }
+  .bmi-cat {
+    display: inline-block;
+    margin-top: 10px;
+    font-size: 14px;
+    font-weight: 700;
+    padding: 6px 16px;
+    border-radius: 999px;
+    color: #0f1225;
+  }
+
+  .scale { margin-top: 22px; }
+  .bar {
+    position: relative;
+    height: 10px;
+    border-radius: 999px;
+    background: linear-gradient(90deg,#4c9aff 0%,#3ec98a 30%,#f5c542 55%,#f08a4b 75%,#e35d6a 100%);
+  }
+  .marker {
+    position: absolute;
+    top: 50%;
+    width: 16px;
+    height: 16px;
+    background: #fff;
+    border-radius: 50%;
+    border: 3px solid var(--card);
+    transform: translate(-50%,-50%);
+    left: 0;
+    box-shadow: 0 2px 8px rgba(0,0,0,.5);
+    transition: left .35s cubic-bezier(.34,1.4,.5,1);
+  }
+  .ticks {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 8px;
+    font-size: 10px;
+    color: var(--muted);
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>BMI Calculator</h1>
+    <div class="sub">Enter your height and weight to find your body mass index.</div>
+
+    <div class="toggle" id="unitToggle">
+      <button data-unit="metric" class="active">Metric</button>
+      <button data-unit="imperial">Imperial</button>
+    </div>
+
+    <div class="field">
+      <label>Height</label>
+      <div class="inputs" id="heightRow">
+        <div class="inputwrap">
+          <input type="number" id="h1" inputmode="decimal" placeholder="0">
+          <span id="h1u">cm</span>
+        </div>
+        <div class="inputwrap" id="h2wrap" style="display:none;">
+          <input type="number" id="h2" inputmode="decimal" placeholder="0">
+          <span id="h2u">in</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Weight</label>
+      <div class="inputs">
+        <div class="inputwrap">
+          <input type="number" id="w" inputmode="decimal" placeholder="0">
+          <span id="wu">kg</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="result" id="result">
+      <div class="bmi-num" id="bmiNum">0.0</div>
+      <div class="bmi-cat" id="bmiCat">—</div>
+      <div class="scale">
+        <div class="bar"><div class="marker" id="marker"></div></div>
+        <div class="ticks">
+          <span>15</span><span>18.5</span><span>25</span><span>30</span><span>40</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const CATS = [
+    { max: 18.5, name: "Underweight", color: "#4c9aff" },
+    { max: 25,   name: "Normal",      color: "#3ec98a" },
+    { max: 30,   name: "Overweight",  color: "#f5c542" },
+    { max: 35,   name: "Obese",       color: "#f08a4b" },
+    { max: Infinity, name: "Severely obese", color: "#e35d6a" }
+  ];
+
+  let unit = "metric";
+  const $ = id => document.getElementById(id);
+
+  $("unitToggle").addEventListener("click", e => {
+    const btn = e.target.closest("button");
+    if (!btn) return;
+    unit = btn.dataset.unit;
+    [...$("unitToggle").children].forEach(b => b.classList.toggle("active", b === btn));
+    applyUnit();
+    calc();
+  });
+
+  function applyUnit() {
+    const imperial = unit === "imperial";
+    $("h2wrap").style.display = imperial ? "flex" : "none";
+    $("h1u").textContent = imperial ? "ft" : "cm";
+    $("wu").textContent = imperial ? "lb" : "kg";
+    ["h1","h2","w"].forEach(id => $(id).value = "");
+    $("result").classList.remove("show");
+  }
+
+  function calc() {
+    let h1 = parseFloat($("h1").value) || 0;
+    let h2 = parseFloat($("h2").value) || 0;
+    let w  = parseFloat($("w").value)  || 0;
+
+    let meters, kg;
+    if (unit === "metric") {
+      meters = h1 / 100;
+      kg = w;
+    } else {
+      meters = (h1 * 12 + h2) * 0.0254;
+      kg = w * 0.45359237;
+    }
+
+    if (meters <= 0 || kg <= 0) {
+      $("result").classList.remove("show");
+      return;
+    }
+
+    const bmi = kg / (meters * meters);
+    const cat = CATS.find(c => bmi < c.max);
+
+    $("bmiNum").textContent = bmi.toFixed(1);
+    $("bmiCat").textContent = cat.name;
+    $("bmiCat").style.background = cat.color;
+
+    // map BMI 15..40 onto 0..100% of the bar
+    const pct = Math.max(0, Math.min(100, ((bmi - 15) / (40 - 15)) * 100));
+    $("marker").style.left = pct + "%";
+    $("result").classList.add("show");
+  }
+
+  ["h1","h2","w"].forEach(id => $(id).addEventListener("input", calc));
+</script>
+</body>
+</html>
