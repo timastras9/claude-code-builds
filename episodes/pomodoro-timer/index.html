@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pomodoro Focus Timer</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --panel: #161a23;
+    --focus: #f2704b;
+    --break: #4bd6b0;
+    --text: #e7ebf2;
+    --muted: #7c8598;
+    --ring-track: #232937;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: radial-gradient(circle at 50% -10%, #1a1f2b 0%, var(--bg) 60%);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+  .app {
+    text-align: center;
+    padding: 40px;
+    user-select: none;
+  }
+  .mode {
+    font-size: 13px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 34px;
+    transition: color 0.4s;
+  }
+  .mode.focus { color: var(--focus); }
+  .mode.break { color: var(--break); }
+
+  .ring-wrap {
+    position: relative;
+    width: 300px;
+    height: 300px;
+    margin: 0 auto;
+  }
+  svg { transform: rotate(-90deg); display: block; }
+  .track { stroke: var(--ring-track); }
+  .progress {
+    stroke: var(--focus);
+    stroke-linecap: round;
+    transition: stroke-dashoffset 0.35s linear, stroke 0.4s;
+  }
+  .progress.break { stroke: var(--break); }
+
+  .center {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  .time {
+    font-size: 62px;
+    font-weight: 300;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+  }
+  .phase-label {
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-top: 6px;
+  }
+
+  .controls {
+    margin-top: 40px;
+    display: flex;
+    gap: 14px;
+    justify-content: center;
+  }
+  button {
+    font-family: inherit;
+    font-size: 14px;
+    letter-spacing: 0.05em;
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid #262c39;
+    padding: 13px 30px;
+    border-radius: 40px;
+    cursor: pointer;
+    transition: transform 0.12s, background 0.2s, border-color 0.2s;
+  }
+  button:hover { background: #1e2432; border-color: #333c4d; }
+  button:active { transform: scale(0.96); }
+  button.primary {
+    background: var(--focus);
+    border-color: var(--focus);
+    color: #1a0f0a;
+    font-weight: 600;
+    min-width: 120px;
+  }
+  button.primary.break { background: var(--break); border-color: var(--break); color: #062019; }
+
+  .sessions {
+    margin-top: 38px;
+    font-size: 13px;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+  }
+  .sessions b { color: var(--text); font-weight: 600; }
+</style>
+</head>
+<body>
+  <div class="app">
+    <div class="mode focus" id="mode">Focus</div>
+    <div class="ring-wrap">
+      <svg width="300" height="300" viewBox="0 0 300 300">
+        <circle class="track" cx="150" cy="150" r="135" fill="none" stroke-width="14"/>
+        <circle class="progress" id="progress" cx="150" cy="150" r="135" fill="none" stroke-width="14"
+                stroke-dasharray="848.23" stroke-dashoffset="0"/>
+      </svg>
+      <div class="center">
+        <div class="time" id="time">25:00</div>
+        <div class="phase-label" id="phaseLabel">Time to focus</div>
+      </div>
+    </div>
+    <div class="controls">
+      <button class="primary" id="startBtn">Start</button>
+      <button id="resetBtn">Reset</button>
+    </div>
+    <div class="sessions">Sessions completed &nbsp;·&nbsp; <b id="count">0</b></div>
+  </div>
+
+<script>
+  const FOCUS = 25 * 60;
+  const BREAK = 5 * 60;
+  const CIRC = 2 * Math.PI * 135;
+
+  const modeEl = document.getElementById('mode');
+  const timeEl = document.getElementById('time');
+  const phaseLabel = document.getElementById('phaseLabel');
+  const progress = document.getElementById('progress');
+  const startBtn = document.getElementById('startBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const countEl = document.getElementById('count');
+
+  let isFocus = true;
+  let total = FOCUS;
+  let remaining = FOCUS;
+  let running = false;
+  let ticker = null;
+  let sessions = 0;
+
+  function fmt(s) {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+  }
+
+  function render() {
+    timeEl.textContent = fmt(remaining);
+    const frac = remaining / total;            // 1 -> full, 0 -> empty
+    progress.style.strokeDashoffset = CIRC * (1 - frac);
+    document.title = fmt(remaining) + ' · ' + (isFocus ? 'Focus' : 'Break');
+  }
+
+  function applyMode() {
+    modeEl.textContent = isFocus ? 'Focus' : 'Break';
+    modeEl.className = 'mode ' + (isFocus ? 'focus' : 'break');
+    phaseLabel.textContent = isFocus ? 'Time to focus' : 'Take a break';
+    progress.classList.toggle('break', !isFocus);
+    startBtn.classList.toggle('break', !isFocus);
+  }
+
+  function tick() {
+    remaining--;
+    if (remaining <= 0) {
+      remaining = 0;
+      render();
+      completePhase();
+      return;
+    }
+    render();
+  }
+
+  function completePhase() {
+    stop();
+    if (isFocus) sessions++, countEl.textContent = sessions;
+    isFocus = !isFocus;
+    total = isFocus ? FOCUS : BREAK;
+    remaining = total;
+    applyMode();
+    render();
+  }
+
+  function start() {
+    if (running) return;
+    running = true;
+    startBtn.textContent = 'Pause';
+    ticker = setInterval(tick, 1000);
+  }
+
+  function stop() {
+    running = false;
+    startBtn.textContent = 'Start';
+    clearInterval(ticker);
+  }
+
+  function reset() {
+    stop();
+    remaining = total;
+    render();
+  }
+
+  startBtn.addEventListener('click', () => running ? stop() : start());
+  resetBtn.addEventListener('click', reset);
+
+  // init
+  progress.setAttribute('stroke-dasharray', CIRC);
+  applyMode();
+  render();
+</script>
+</body>
+</html>
