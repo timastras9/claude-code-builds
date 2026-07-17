@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SNAKE</title>
+<style>
+  :root {
+    --green: #33ff66;
+    --green-dim: #1a8a3a;
+    --bg: #020402;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Courier New', Courier, monospace;
+    overflow: hidden;
+  }
+  #wrap {
+    position: relative;
+    width: 600px;
+    max-width: 96vw;
+    aspect-ratio: 1 / 1;
+    background: var(--bg);
+    border: 2px solid var(--green-dim);
+    border-radius: 12px;
+    box-shadow: 0 0 24px rgba(51,255,102,0.25),
+                inset 0 0 60px rgba(51,255,102,0.06);
+    overflow: hidden;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    image-rendering: pixelated;
+  }
+  /* CRT scanline overlay */
+  #scanlines {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(0,0,0,0) 0px,
+      rgba(0,0,0,0) 2px,
+      rgba(0,0,0,0.28) 3px,
+      rgba(0,0,0,0.28) 4px
+    );
+    mix-blend-mode: multiply;
+    z-index: 3;
+  }
+  /* subtle screen curvature vignette */
+  #vignette {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(ellipse at center,
+      rgba(0,0,0,0) 55%, rgba(0,0,0,0.55) 100%);
+    z-index: 2;
+  }
+  #flicker {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: rgba(51,255,102,0.03);
+    z-index: 4;
+    animation: flick 0.12s steps(2) infinite;
+  }
+  @keyframes flick { 0%{opacity:0.6;} 100%{opacity:0.9;} }
+</style>
+</head>
+<body>
+  <div id="wrap">
+    <canvas id="game" width="400" height="400"></canvas>
+    <div id="vignette"></div>
+    <div id="scanlines"></div>
+    <div id="flicker"></div>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+
+  // --- Grid config ---
+  const CELL = 20;                     // pixels per cell
+  const COLS = canvas.width / CELL;     // 20
+  const ROWS = canvas.height / CELL;    // 20
+
+  // --- Colors ---
+  const GREEN = "#33ff66";
+  const GREEN_DIM = "#1a8a3a";
+  const GREEN_DARK = "#0c3f1c";
+
+  // --- Speed config ---
+  const BASE_INTERVAL = 130;   // ms per step at start
+  const SPEEDUP_EVERY = 5;     // apples between speed-ups
+  const SPEEDUP_FACTOR = 0.85; // multiply interval each speed-up
+  const MIN_INTERVAL = 55;
+
+  // --- Game state ---
+  const STATE = { START: 0, PLAY: 1, OVER: 2 };
+  let state = STATE.START;
+
+  let snake, dir, nextDir, apple, score, interval, acc, lastTime, best = 0;
+
+  function resetGame() {
+    const cx = Math.floor(COLS / 2);
+    const cy = Math.floor(ROWS / 2);
+    snake = [
+      { x: cx,     y: cy },
+      { x: cx - 1, y: cy },
+      { x: cx - 2, y: cy }
+    ];
+    dir = { x: 1, y: 0 };
+    nextDir = { x: 1, y: 0 };
+    score = 0;
+    interval = BASE_INTERVAL;
+    acc = 0;
+    placeApple();
+  }
+
+  function placeApple() {
+    let p;
+    do {
+      p = {
+        x: Math.floor(Math.random() * COLS),
+        y: Math.floor(Math.random() * ROWS)
+      };
+    } while (snake.some(s => s.x === p.x && s.y === p.y));
+    apple = p;
+  }
+
+  // --- Input ---
+  const KEYMAP = {
+    ArrowUp:    { x: 0,  y: -1 },
+    ArrowDown:  { x: 0,  y: 1  },
+    ArrowLeft:  { x: -1, y: 0  },
+    ArrowRight: { x: 1,  y: 0  },
+    w: { x: 0, y: -1 }, W: { x: 0, y: -1 },
+    s: { x: 0, y: 1  }, S: { x: 0, y: 1  },
+    a: { x: -1, y: 0 }, A: { x: -1, y: 0 },
+    d: { x: 1, y: 0  }, D: { x: 1, y: 0  }
+  };
+
+  window.addEventListener("keydown", function (e) {
+    // Prevent page scroll on arrow / space keys.
+    if (e.key.startsWith("Arrow") || e.key === " ") e.preventDefault();
+
+    if (state === STATE.START) {
+      resetGame();
+      state = STATE.PLAY;
+      lastTime = performance.now();
+      return;
+    }
+
+    if (state === STATE.OVER) {
+      if (e.key === "Enter" || e.key === " ") {
+        resetGame();
+        state = STATE.PLAY;
+        lastTime = performance.now();
+      }
+      return;
+    }
+
+    // Playing: queue a direction change (no 180° reversal).
+    const nd = KEYMAP[e.key];
+    if (nd) {
+      if (nd.x !== -dir.x || nd.y !== -dir.y) {
+        nextDir = nd;
+      }
+    }
+  }, { passive: false });
+
+  // Restart button (drawn on canvas) — handle clicks/taps.
+  let restartBtn = null; // {x,y,w,h} in canvas pixel space when game over
+  function canvasPos(evt) {
+    const rect = canvas.getBoundingClientRect();
+    const p = evt.touches ? evt.touches[0] : evt;
+    const sx = canvas.width / rect.width;
+    const sy = canvas.height / rect.height;
+    return { x: (p.clientX - rect.left) * sx, y: (p.clientY - rect.top) * sy };
+  }
+  function handlePointer(evt) {
+    if (state === STATE.START) {
+      resetGame(); state = STATE.PLAY; lastTime = performance.now();
+      return;
+    }
+    if (state === STATE.OVER && restartBtn) {
+      const pos = canvasPos(evt);
+      if (pos.x >= restartBtn.x && pos.x <= restartBtn.x + restartBtn.w &&
+          pos.y >= restartBtn.y && pos.y <= restartBtn.y + restartBtn.h) {
+        resetGame(); state = STATE.PLAY; lastTime = performance.now();
+      }
+    }
+  }
+  canvas.addEventListener("mousedown", handlePointer);
+  canvas.addEventListener("touchstart", function (e) { e.preventDefault(); handlePointer(e); }, { passive: false });
+
+  // --- Update ---
+  function step() {
+    dir = nextDir;
+    const head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
+
+    // Wall collision.
+    if (head.x < 0 || head.x >= COLS || head.y < 0 || head.y >= ROWS) {
+      return gameOver();
+    }
+    // Self collision.
+    if (snake.some(s => s.x === head.x && s.y === head.y)) {
+      return gameOver();
+    }
+
+    snake.unshift(head);
+
+    if (head.x === apple.x && head.y === apple.y) {
+      score++;
+      if (score % SPEEDUP_EVERY === 0) {
+        interval = Math.max(MIN_INTERVAL, interval * SPEEDUP_FACTOR);
+      }
+      placeApple();
+    } else {
+      snake.pop();
+    }
+  }
+
+  function gameOver() {
+    state = STATE.OVER;
+    if (score > best) best = score;
+  }
+
+  // --- Render helpers ---
+  function drawGrid() {
+    ctx.strokeStyle = "rgba(51,255,102,0.05)";
+    ctx.lineWidth = 1;
+    for (let x = 0; x <= COLS; x++) {
+      ctx.beginPath();
+      ctx.moveTo(x * CELL + 0.5, 0);
+      ctx.lineTo(x * CELL + 0.5, canvas.height);
+      ctx.stroke();
+    }
+    for (let y = 0; y <= ROWS; y++) {
+      ctx.beginPath();
+      ctx.moveTo(0, y * CELL + 0.5);
+      ctx.lineTo(canvas.width, y * CELL + 0.5);
+      ctx.stroke();
+    }
+  }
+
+  function drawCell(x, y, color, inset) {
+    inset = inset || 1;
+    ctx.fillStyle = color;
+    ctx.fillRect(x * CELL + inset, y * CELL + inset, CELL - inset * 2, CELL - inset * 2);
+  }
+
+  function clear() {
+    ctx.fillStyle = "#020402";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  function withGlow(color, blur, fn) {
+    ctx.save();
+    ctx.shadowColor = color;
+    ctx.shadowBlur = blur;
+    fn();
+    ctx.restore();
+  }
+
+  function textCenter(str, y, size, color, glow) {
+    ctx.font = size + "px 'Courier New', monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    if (glow) { ctx.save(); ctx.shadowColor = color; ctx.shadowBlur = 12; }
+    ctx.fillStyle = color;
+    ctx.fillText(str, canvas.width / 2, y);
+    if (glow) ctx.restore();
+  }
+
+  function drawSnakeAndApple() {
+    // Apple with pulse glow.
+    withGlow(GREEN, 14, function () {
+      drawCell(apple.x, apple.y, GREEN, 3);
+    });
+
+    // Snake body — head brightest, fading toward tail.
+    for (let i = snake.length - 1; i >= 0; i--) {
+      const s = snake[i];
+      if (i === 0) {
+        withGlow(GREEN, 10, function () { drawCell(s.x, s.y, GREEN); });
+      } else {
+        const t = 1 - i / snake.length; // 0 tail .. ~1 near head
+        const shade = mixGreen(0.35 + t * 0.5);
+        drawCell(s.x, s.y, shade);
+      }
+    }
+  }
+
+  function mixGreen(a) {
+    // a in [0,1] -> interpolate GREEN_DARK -> GREEN
+    a = Math.max(0, Math.min(1, a));
+    const r = Math.round(0x0c + (0x33 - 0x0c) * a);
+    const g = Math.round(0x3f + (0xff - 0x3f) * a);
+    const b = Math.round(0x1c + (0x66 - 0x1c) * a);
+    return "rgb(" + r + "," + g + "," + b + ")";
+  }
+
+  function drawHUD() {
+    ctx.font = "16px 'Courier New', monospace";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillStyle = GREEN;
+    ctx.save();
+    ctx.shadowColor = GREEN; ctx.shadowBlur = 8;
+    ctx.fillText("SCORE " + score, 8, 8);
+    ctx.restore();
+
+    ctx.textAlign = "right";
+    ctx.fillStyle = GREEN_DIM;
+    const speedLvl = Math.floor(score / SPEEDUP_EVERY) + 1;
+    ctx.fillText("SPD " + speedLvl, canvas.width - 8, 8);
+  }
+
+  function drawStartScreen() {
+    clear();
+    drawGrid();
+    textCenter("S N A K E", canvas.height / 2 - 48, 52, GREEN, true);
+    textCenter("PRESS ANY KEY TO START", canvas.height / 2 + 24, 18, GREEN, true);
+    // blinking hint
+    if (Math.floor(performance.now() / 500) % 2 === 0) {
+      textCenter("▲ ▼ ◄ ►   /   W A S D", canvas.height / 2 + 60, 14, GREEN_DIM, false);
+    }
+    if (best > 0) {
+      textCenter("BEST " + best, canvas.height / 2 + 100, 14, GREEN_DIM, false);
+    }
+  }
+
+  function drawGameOver() {
+    // Dim the field behind the panel.
+    ctx.fillStyle = "rgba(2,4,2,0.72)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    textCenter("GAME OVER", canvas.height / 2 - 70, 44, GREEN, true);
+    textCenter("FINAL SCORE  " + score, canvas.height / 2 - 14, 20, GREEN, true);
+    textCenter("BEST  " + best, canvas.height / 2 + 14, 15, GREEN_DIM, false);
+
+    // Restart button.
+    const bw = 200, bh = 46;
+    const bx = (canvas.width - bw) / 2;
+    const by = canvas.height / 2 + 44;
+    restartBtn = { x: bx, y: by, w: bw, h: bh };
+
+    ctx.save();
+    ctx.shadowColor = GREEN; ctx.shadowBlur = 12;
+    ctx.strokeStyle = GREEN;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(bx, by, bw, bh);
+    ctx.restore();
+
+    textCenter("RESTART", by + bh / 2, 20, GREEN, false);
+    textCenter("press ENTER or click", by + bh + 22, 12, GREEN_DIM, false);
+  }
+
+  function render() {
+    if (state === STATE.START) {
+      drawStartScreen();
+      return;
+    }
+    clear();
+    drawGrid();
+    drawSnakeAndApple();
+    drawHUD();
+    if (state === STATE.OVER) {
+      drawGameOver();
+    }
+  }
+
+  // --- Main loop ---
+  function loop(now) {
+    if (state === STATE.PLAY) {
+      const dt = now - lastTime;
+      lastTime = now;
+      acc += dt;
+      while (acc >= interval) {
+        acc -= interval;
+        step();
+        if (state !== STATE.PLAY) break;
+      }
+    } else {
+      lastTime = now;
+    }
+    render();
+    requestAnimationFrame(loop);
+  }
+
+  // Init
+  resetGame();          // so a field exists behind the start screen if needed
+  state = STATE.START;
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
