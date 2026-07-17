@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bean and Brew — Neighborhood Roastery</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Young+Serif&family=Karla:ital,wght@0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --roast: #1b120d;
+    --bean: #2a1b12;
+    --crema: #f0dfc0;
+    --caramel: #c98a4b;
+    --cinnamon: #a45a2a;
+    --milk: #fbf5ea;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--roast);
+    color: var(--crema);
+    font-family: "Karla", sans-serif;
+    font-size: 1.0625rem;
+    line-height: 1.6;
+  }
+  h1, h2, .price { font-family: "Young Serif", serif; font-weight: 400; }
+
+  /* ---------- Header ---------- */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.25rem clamp(1.25rem, 5vw, 4rem);
+    border-bottom: 1px solid rgba(240, 223, 192, 0.18);
+  }
+  .wordmark {
+    font-family: "Young Serif", serif;
+    font-size: 1.35rem;
+    letter-spacing: 0.01em;
+    color: var(--milk);
+    text-decoration: none;
+  }
+  .wordmark span { color: var(--caramel); }
+  nav { display: flex; gap: 1.75rem; }
+  nav a {
+    color: var(--crema);
+    text-decoration: none;
+    font-size: 0.95rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  nav a:hover, nav a:focus-visible { color: var(--caramel); }
+
+  /* ---------- Hero ---------- */
+  .hero {
+    display: grid;
+    grid-template-columns: 1.2fr 0.8fr;
+    align-items: center;
+    gap: 2rem;
+    padding: clamp(3rem, 9vw, 6.5rem) clamp(1.25rem, 5vw, 4rem);
+    max-width: 72rem;
+    margin: 0 auto;
+  }
+  .eyebrow {
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    font-size: 0.8rem;
+    color: var(--caramel);
+    margin-bottom: 1rem;
+  }
+  .hero h1 {
+    font-size: clamp(2.4rem, 6vw, 4.2rem);
+    line-height: 1.08;
+    color: var(--milk);
+    margin-bottom: 1.25rem;
+  }
+  .hero p { max-width: 34ch; color: var(--crema); }
+
+  /* Signature: cup with rising steam */
+  .cup-scene { display: flex; justify-content: center; }
+  .cup {
+    position: relative;
+    width: 150px;
+    height: 100px;
+    background: var(--milk);
+    border-radius: 0 0 70px 70px;
+  }
+  .cup::before { /* handle */
+    content: "";
+    position: absolute;
+    right: -34px;
+    top: 12px;
+    width: 40px;
+    height: 46px;
+    border: 10px solid var(--milk);
+    border-radius: 50%;
+  }
+  .cup::after { /* coffee surface */
+    content: "";
+    position: absolute;
+    inset: 8px 10px auto 10px;
+    height: 14px;
+    background: var(--cinnamon);
+    border-radius: 50%;
+  }
+  .saucer {
+    width: 210px;
+    height: 16px;
+    background: var(--milk);
+    border-radius: 50%;
+    margin-top: 10px;
+  }
+  .steam {
+    position: absolute;
+    bottom: 105%;
+    width: 5px;
+    height: 46px;
+    border-radius: 50%;
+    background: linear-gradient(to top, rgba(240, 223, 192, 0.55), transparent);
+    animation: rise 3.2s ease-in-out infinite;
+  }
+  .steam:nth-child(1) { left: 34px; animation-delay: 0s; }
+  .steam:nth-child(2) { left: 70px; animation-delay: 1.1s; }
+  .steam:nth-child(3) { left: 106px; animation-delay: 2.2s; }
+  @keyframes rise {
+    0%   { transform: translateY(8px) scaleY(0.7); opacity: 0; }
+    35%  { opacity: 1; }
+    100% { transform: translateY(-26px) scaleY(1.15); opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .steam { animation: none; opacity: 0.5; }
+    html { scroll-behavior: auto; }
+  }
+
+  /* ---------- Sections ---------- */
+  section {
+    max-width: 72rem;
+    margin: 0 auto;
+    padding: clamp(2.5rem, 7vw, 5rem) clamp(1.25rem, 5vw, 4rem);
+  }
+  section h2 {
+    font-size: clamp(1.7rem, 3.5vw, 2.4rem);
+    color: var(--milk);
+    margin-bottom: 2rem;
+  }
+
+  /* Menu: chalkboard-style card with dotted leaders */
+  .menu-card {
+    background: var(--bean);
+    border: 1px solid rgba(240, 223, 192, 0.18);
+    border-radius: 14px;
+    padding: clamp(1.5rem, 4vw, 3rem);
+  }
+  .menu-item {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    padding: 1.1rem 0;
+  }
+  .menu-item + .menu-item { border-top: 1px solid rgba(240, 223, 192, 0.12); }
+  .drink-name { font-weight: 700; color: var(--milk); white-space: nowrap; }
+  .drink-desc { color: rgba(240, 223, 192, 0.7); font-size: 0.92rem; font-style: italic; }
+  .leader {
+    flex: 1;
+    border-bottom: 2px dotted rgba(201, 138, 75, 0.5);
+    transform: translateY(-4px);
+    min-width: 2rem;
+  }
+  .price { color: var(--caramel); font-size: 1.15rem; white-space: nowrap; }
+
+  /* ---------- About ---------- */
+  .about-inner {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 1.5rem;
+    align-items: start;
+  }
+  .about-rule {
+    width: 4px;
+    height: 100%;
+    min-height: 3rem;
+    background: var(--cinnamon);
+    border-radius: 2px;
+  }
+  .about p { max-width: 58ch; }
+  .about p + p { margin-top: 1rem; }
+
+  /* ---------- Order ---------- */
+  .order { text-align: center; }
+  .order p { margin-bottom: 1.5rem; color: rgba(240, 223, 192, 0.8); }
+  .order-btn {
+    font-family: "Karla", sans-serif;
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: var(--roast);
+    background: var(--caramel);
+    border: none;
+    border-radius: 999px;
+    padding: 0.95rem 2.6rem;
+    cursor: pointer;
+    transition: background 0.2s ease, transform 0.2s ease;
+  }
+  .order-btn:hover { background: var(--crema); transform: translateY(-2px); }
+  .order-btn:focus-visible { outline: 3px solid var(--crema); outline-offset: 3px; }
+
+  footer {
+    border-top: 1px solid rgba(240, 223, 192, 0.18);
+    padding: 1.5rem clamp(1.25rem, 5vw, 4rem);
+    text-align: center;
+    font-size: 0.85rem;
+    color: rgba(240, 223, 192, 0.55);
+  }
+
+  /* ---------- Mobile ---------- */
+  @media (max-width: 700px) {
+    .hero { grid-template-columns: 1fr; text-align: center; }
+    .hero p { margin: 0 auto; }
+    .cup-scene { order: -1; }
+    nav { gap: 1rem; }
+    .menu-item { flex-wrap: wrap; }
+    .drink-desc { width: 100%; order: 3; }
+    .leader { min-width: 1rem; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <a class="wordmark" href="#top">Bean <span>&amp;</span> Brew</a>
+  <nav aria-label="Main">
+    <a href="#menu">Menu</a>
+    <a href="#about">About</a>
+    <a href="#order">Order</a>
+  </nav>
+</header>
+
+<main id="top">
+  <div class="hero">
+    <div>
+      <p class="eyebrow">Roasted on Maple Street since 2012</p>
+      <h1>Small-batch coffee, poured slow.</h1>
+      <p>We roast twice a week, pull every shot by hand, and know most of our regulars by their usual order.</p>
+    </div>
+    <div class="cup-scene" aria-hidden="true">
+      <div>
+        <div class="cup">
+          <div class="steam"></div>
+          <div class="steam"></div>
+          <div class="steam"></div>
+        </div>
+        <div class="saucer"></div>
+      </div>
+    </div>
+  </div>
+
+  <section id="menu">
+    <h2>The Menu</h2>
+    <div class="menu-card">
+      <div class="menu-item">
+        <span class="drink-name">House Espresso</span>
+        <span class="drink-desc">double shot, dark chocolate finish</span>
+        <span class="leader" aria-hidden="true"></span>
+        <span class="price">$3.50</span>
+      </div>
+      <div class="menu-item">
+        <span class="drink-name">Maple Latte</span>
+        <span class="drink-desc">local maple syrup, steamed whole milk</span>
+        <span class="leader" aria-hidden="true"></span>
+        <span class="price">$5.25</span>
+      </div>
+      <div class="menu-item">
+        <span class="drink-name">Cold Brew</span>
+        <span class="drink-desc">steeped 18 hours, served over ice</span>
+        <span class="leader" aria-hidden="true"></span>
+        <span class="price">$4.75</span>
+      </div>
+    </div>
+  </section>
+
+  <section id="about" class="about">
+    <h2>About Us</h2>
+    <div class="about-inner">
+      <div class="about-rule" aria-hidden="true"></div>
+      <div>
+        <p>Bean &amp; Brew started as a roasting drum in a garage and a folding table at the Saturday market. Fourteen years later we're still small on purpose: one roaster, one espresso machine, and beans sourced directly from farms we've visited in Colombia and Ethiopia.</p>
+        <p>Come for the coffee, stay for the window seat. Open daily, 7am to 4pm.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="order" class="order">
+    <h2>Skip the line</h2>
+    <p>Order ahead and your drink will be waiting on the counter.</p>
+    <button class="order-btn" type="button" onclick="placeOrder()">Order now</button>
+  </section>
+</main>
+
+<footer>
+  Bean &amp; Brew · 214 Maple Street · Open daily 7am–4pm
+</footer>
+
+<script>
+  function placeOrder() {
+    alert("Thanks for your order! ☕ Your drink will be ready for pickup in 10 minutes at Bean & Brew, 214 Maple Street.");
+  }
+</script>
+
+</body>
+</html>
