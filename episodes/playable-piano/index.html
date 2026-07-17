@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Playable Piano — C4 to B5</title>
+<style>
+  :root {
+    --bg: #0f1220;
+    --panel: #1a1f36;
+    --accent: #6ee7ff;
+    --accent2: #a78bfa;
+    --white-key: #f7f7fb;
+    --white-key-active: #9fe8ff;
+    --black-key: #14161f;
+    --black-key-active: #5b7cff;
+    --text: #e8ecf8;
+    --muted: #8b93b5;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: radial-gradient(1200px 600px at 50% -10%, #232a4d 0%, var(--bg) 60%);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .wrap {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 28px 20px 40px;
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+  }
+  header { text-align: center; margin-bottom: 22px; }
+  h1 {
+    margin: 0 0 6px;
+    font-size: clamp(22px, 4vw, 34px);
+    letter-spacing: 0.5px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .sub { color: var(--muted); font-size: 14px; margin: 0; }
+
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: center;
+    align-items: center;
+    margin: 18px 0 26px;
+  }
+  button, .toggle {
+    font: inherit;
+    font-size: 14px;
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid rgba(255,255,255,0.08);
+    padding: 10px 16px;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: transform .08s ease, background .15s ease, border-color .15s ease, box-shadow .15s ease;
+  }
+  button:hover, .toggle:hover { border-color: rgba(255,255,255,0.22); }
+  button:active { transform: translateY(1px); }
+  button:disabled { opacity: .5; cursor: default; }
+  .toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .switch {
+    width: 42px; height: 24px;
+    border-radius: 999px;
+    background: #2b3157;
+    position: relative;
+    transition: background .18s ease;
+    flex: none;
+  }
+  .switch::after {
+    content: "";
+    position: absolute;
+    top: 3px; left: 3px;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: #cfd6ff;
+    transition: transform .18s ease;
+  }
+  .toggle.on .switch { background: var(--accent2); }
+  .toggle.on .switch::after { transform: translateX(18px); }
+  #demoBtn.playing {
+    background: linear-gradient(90deg, var(--accent2), var(--accent));
+    color: #0b0e1a;
+    border-color: transparent;
+  }
+
+  .piano-scroll {
+    overflow-x: auto;
+    padding: 10px 0 18px;
+  }
+  .piano {
+    position: relative;
+    display: flex;
+    width: fit-content;
+    margin: 0 auto;
+    padding: 18px 18px 22px;
+    background: linear-gradient(180deg, #05060c, #171b2e);
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.55), inset 0 2px 0 rgba(255,255,255,.05);
+  }
+  .keys { position: relative; display: flex; }
+
+  .key {
+    position: relative;
+    cursor: pointer;
+  }
+  .white {
+    width: 46px;
+    height: 220px;
+    background: linear-gradient(180deg, #ffffff, var(--white-key) 70%, #dfe2ee);
+    border: 1px solid #b9bdd0;
+    border-radius: 0 0 7px 7px;
+    margin-right: -1px;
+    box-shadow: inset 0 -6px 10px rgba(0,0,0,.12);
+    z-index: 1;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding-bottom: 12px;
+  }
+  .white.active {
+    background: linear-gradient(180deg, #d6f4ff, var(--white-key-active));
+    box-shadow: inset 0 -4px 12px rgba(0,90,140,.28);
+  }
+  .black {
+    position: absolute;
+    top: 0;
+    width: 30px;
+    height: 138px;
+    background: linear-gradient(180deg, #2a2d3c, var(--black-key));
+    border: 1px solid #000;
+    border-radius: 0 0 6px 6px;
+    box-shadow: 0 6px 8px rgba(0,0,0,.5), inset 0 -3px 6px rgba(255,255,255,.08);
+    z-index: 2;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding-bottom: 10px;
+  }
+  .black.active {
+    background: linear-gradient(180deg, #4a63d8, var(--black-key-active));
+    box-shadow: 0 3px 6px rgba(0,0,0,.5), inset 0 -3px 8px rgba(120,160,255,.5);
+  }
+  .label {
+    font-size: 11px;
+    font-weight: 600;
+    pointer-events: none;
+    line-height: 1.3;
+    text-align: center;
+  }
+  .white .label { color: #6b7196; }
+  .black .label { color: #cfd6ff; }
+  .note-name {
+    display: block;
+    font-size: 9px;
+    font-weight: 500;
+    opacity: .65;
+  }
+
+  footer {
+    margin-top: auto;
+    padding-top: 26px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  kbd {
+    background: #2b3157;
+    border-radius: 5px;
+    padding: 2px 6px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    color: #dfe4ff;
+    border: 1px solid rgba(255,255,255,.12);
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Web Audio Piano</h1>
+    <p class="sub">Two octaves · C4 → B5 · click, touch, or use your keyboard</p>
+  </header>
+
+  <div class="controls">
+    <div class="toggle" id="sustainToggle" role="switch" aria-checked="false" tabindex="0">
+      <span class="switch"></span>
+      <span>Sustain</span>
+    </div>
+    <button id="demoBtn">▶ Play demo (Ode to Joy)</button>
+  </div>
+
+  <div class="piano-scroll">
+    <div class="piano">
+      <div class="keys" id="keys"></div>
+    </div>
+  </div>
+
+  <footer>
+    Row <kbd>A</kbd> <kbd>W</kbd> <kbd>S</kbd> <kbd>E</kbd> … plays the lower octave,
+    <kbd>K</kbd> <kbd>O</kbd> <kbd>L</kbd> … the upper. No files, no libraries — pure Web Audio.
+  </footer>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  // ---- Note model --------------------------------------------------------
+  // Semitone offsets within an octave; black keys carry a `sharp` flag.
+  const OCTAVE = [
+    { name: "C",  sharp: false },
+    { name: "C#", sharp: true  },
+    { name: "D",  sharp: false },
+    { name: "D#", sharp: true  },
+    { name: "E",  sharp: false },
+    { name: "F",  sharp: false },
+    { name: "F#", sharp: true  },
+    { name: "G",  sharp: false },
+    { name: "G#", sharp: true  },
+    { name: "A",  sharp: false },
+    { name: "A#", sharp: true  },
+    { name: "B",  sharp: false },
+  ];
+
+  // Keyboard mapping, low octave (C4) then high octave (C5), in note order.
+  // The classic two-row layout: Z/S/X... style lower, Q/2/W... could be used,
+  // but we use A-row for lower and K-row for upper to fit two octaves.
+  const KEYMAP = [
+    // C4 octave
+    "a", "w", "s", "e", "d", "f", "t", "g", "y", "h", "u", "j",
+    // C5 octave
+    "k", "o", "l", "p", ";", "z", "c", "x", "v", "b", "n", "m",
+  ];
+
+  // Build the full note list C4..B5 (24 notes). MIDI: C4 = 60.
+  const notes = [];
+  const START_MIDI = 60; // C4
+  for (let i = 0; i < 24; i++) {
+    const midi = START_MIDI + i;
+    const spec = OCTAVE[i % 12];
+    const octaveNum = 4 + Math.floor(i / 12);
+    notes.push({
+      midi,
+      name: spec.name + octaveNum,
+      display: spec.name,
+      sharp: spec.sharp,
+      freq: 440 * Math.pow(2, (midi - 69) / 12),
+      key: KEYMAP[i] || "",
+    });
+  }
+
+  // ---- DOM: build keys ---------------------------------------------------
+  // White keys sit in flow; black keys are absolutely positioned so they
+  // straddle the boundary between their neighbouring white keys.
+  const keysEl = document.getElementById("keys");
+  const WHITE_W = 46;   // must match .white width in CSS
+  const BLACK_W = 30;   // must match .black width in CSS
+  const keyElByMidi = new Map();
+
+  const whiteNotes = notes.filter(n => !n.sharp);
+  let whiteIndex = 0;
+
+  // First pass: render all white keys in order.
+  for (const n of notes) {
+    if (n.sharp) continue;
+    const el = document.createElement("div");
+    el.className = "key white";
+    el.dataset.midi = n.midi;
+    el.innerHTML =
+      '<span class="label">' + (n.key ? n.key.toUpperCase() : "") +
+      '<span class="note-name">' + n.name + '</span></span>';
+    keysEl.appendChild(el);
+    keyElByMidi.set(n.midi, el);
+  }
+
+  // Second pass: black keys, positioned relative to the white-key row.
+  // A black key belongs to the gap after the white key immediately below it
+  // (e.g. C# sits between C and D). Compute left offset from the count of
+  // white keys preceding it.
+  for (const n of notes) {
+    if (!n.sharp) continue;
+    // count white keys with midi < this note's midi -> gap position
+    let whitesBefore = 0;
+    for (const w of whiteNotes) if (w.midi < n.midi) whitesBefore++;
+    const left = whitesBefore * WHITE_W - BLACK_W / 2;
+    const el = document.createElement("div");
+    el.className = "key black";
+    el.dataset.midi = n.midi;
+    el.style.left = left + "px";
+    el.innerHTML =
+      '<span class="label">' + (n.key ? n.key.toUpperCase() : "") +
+      '<span class="note-name">' + n.name + '</span></span>';
+    keysEl.appendChild(el);
+    keyElByMidi.set(n.midi, el);
+  }
+
+  // ---- Audio engine ------------------------------------------------------
+  let audioCtx = null;
+  let masterGain = null;
+  const active = new Map(); // midi -> { osc, gain, sustained }
+  let sustainOn = false;
+
+  function ensureAudio() {
+    if (audioCtx) return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    audioCtx = new AC();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0.85;
+    masterGain.connect(audioCtx.destination);
+  }
+
+  function noteOn(midi) {
+    ensureAudio();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    if (active.has(midi)) return; // already sounding
+    const note = notes[midi - START_MIDI];
+    if (!note) return;
+
+    const now = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+
+    // A slightly warm tone: triangle fundamental + subtle detune sawtooth.
+    osc.type = "triangle";
+    osc.frequency.value = note.freq;
+
+    const osc2 = audioCtx.createOscillator();
+    osc2.type = "sawtooth";
+    osc2.frequency.value = note.freq;
+    const gain2 = audioCtx.createGain();
+    gain2.gain.value = 0.18;
+
+    // ADSR-ish attack
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.28, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.2, now + 0.25);
+
+    osc.connect(gain);
+    osc2.connect(gain2);
+    gain2.connect(gain);
+    gain.connect(masterGain);
+
+    osc.start(now);
+    osc2.start(now);
+
+    active.set(midi, { osc, osc2, gain, gain2 });
+    highlight(midi, true);
+  }
+
+  function noteOff(midi, force) {
+    const voice = active.get(midi);
+    if (!voice) return;
+    if (sustainOn && !force) {
+      voice.sustained = true; // keep ringing until sustain released
+      highlight(midi, false);
+      return;
+    }
+    const now = audioCtx.currentTime;
+    const g = voice.gain.gain;
+    g.cancelScheduledValues(now);
+    g.setValueAtTime(Math.max(g.value, 0.0001), now);
+    g.exponentialRampToValueAtTime(0.0001, now + 0.35);
+    voice.osc.stop(now + 0.4);
+    voice.osc2.stop(now + 0.4);
+    active.delete(midi);
+    highlight(midi, false);
+  }
+
+  function releaseSustained() {
+    for (const [midi, voice] of Array.from(active.entries())) {
+      if (voice.sustained) noteOff(midi, true);
+    }
+  }
+
+  function highlight(midi, on) {
+    const el = keyElByMidi.get(midi);
+    if (el) el.classList.toggle("active", on);
+  }
+
+  // ---- Pointer / touch input --------------------------------------------
+  function midiFromEvent(target) {
+    const keyEl = target.closest ? target.closest(".key") : null;
+    if (!keyEl) return null;
+    return parseInt(keyEl.dataset.midi, 10);
+  }
+
+  const pointerDown = new Set();
+
+  keysEl.addEventListener("pointerdown", (e) => {
+    const midi = midiFromEvent(e.target);
+    if (midi == null) return;
+    e.preventDefault();
+    pointerDown.add(e.pointerId);
+    noteOn(midi);
+    keysEl.setPointerCapture && keysEl.setPointerCapture(e.pointerId);
+  });
+
+  keysEl.addEventListener("pointerup", (e) => {
+    const midi = midiFromEvent(e.target);
+    pointerDown.delete(e.pointerId);
+    if (midi != null) noteOff(midi);
+  });
+
+  keysEl.addEventListener("pointercancel", (e) => {
+    pointerDown.delete(e.pointerId);
+  });
+
+  // Glide: releasing outside handled by tracking last note per pointer.
+  keysEl.addEventListener("pointerleave", () => {}, true);
+
+  // ---- Computer keyboard input ------------------------------------------
+  const keyToMidi = new Map();
+  for (const n of notes) if (n.key) keyToMidi.set(n.key, n.midi);
+  const heldKeys = new Set();
+
+  window.addEventListener("keydown", (e) => {
+    if (e.repeat) return;
+    const k = e.key.toLowerCase();
+    if (k === " ") { // spacebar toggles sustain quickly
+      e.preventDefault();
+      setSustain(!sustainOn);
+      return;
+    }
+    if (!keyToMidi.has(k)) return;
+    if (heldKeys.has(k)) return;
+    heldKeys.add(k);
+    noteOn(keyToMidi.get(k));
+  });
+
+  window.addEventListener("keyup", (e) => {
+    const k = e.key.toLowerCase();
+    if (!keyToMidi.has(k)) return;
+    heldKeys.delete(k);
+    noteOff(keyToMidi.get(k));
+  });
+
+  // ---- Sustain toggle ----------------------------------------------------
+  const sustainEl = document.getElementById("sustainToggle");
+  function setSustain(on) {
+    sustainOn = on;
+    sustainEl.classList.toggle("on", on);
+    sustainEl.setAttribute("aria-checked", on ? "true" : "false");
+    if (!on) releaseSustained();
+  }
+  sustainEl.addEventListener("click", () => setSustain(!sustainOn));
+  sustainEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSustain(!sustainOn); }
+  });
+
+  // ---- Demo: Ode to Joy --------------------------------------------------
+  // Melody as [noteName, beats]. E4=64. Uses notes within our range.
+  const N = {}; // name -> midi
+  for (const n of notes) N[n.name] = n.midi;
+
+  const ODE = [
+    ["E4",1],["E4",1],["F4",1],["G4",1],
+    ["G4",1],["F4",1],["E4",1],["D4",1],
+    ["C4",1],["C4",1],["D4",1],["E4",1],
+    ["E4",1.5],["D4",0.5],["D4",2],
+    ["E4",1],["E4",1],["F4",1],["G4",1],
+    ["G4",1],["F4",1],["E4",1],["D4",1],
+    ["C4",1],["C4",1],["D4",1],["E4",1],
+    ["D4",1.5],["C4",0.5],["C4",2],
+  ];
+
+  const demoBtn = document.getElementById("demoBtn");
+  let demoTimers = [];
+  let demoPlaying = false;
+
+  function stopDemo() {
+    demoPlaying = false;
+    demoTimers.forEach(clearTimeout);
+    demoTimers = [];
+    demoBtn.classList.remove("playing");
+    demoBtn.textContent = "▶ Play demo (Ode to Joy)";
+    // release any demo-held notes
+    for (const midi of Array.from(active.keys())) noteOff(midi, true);
+  }
+
+  function playDemo() {
+    ensureAudio();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    demoPlaying = true;
+    demoBtn.classList.add("playing");
+    demoBtn.textContent = "■ Stop demo";
+
+    const BEAT = 420; // ms per beat
+    const GAP = 0.12; // fraction of note left silent for articulation
+    let t = 250;
+
+    ODE.forEach(([name, beats]) => {
+      const midi = N[name];
+      const dur = beats * BEAT;
+      const onT = setTimeout(() => {
+        if (!demoPlaying) return;
+        noteOn(midi);
+      }, t);
+      const offT = setTimeout(() => {
+        if (!demoPlaying) return;
+        noteOff(midi, true);
+      }, t + dur * (1 - GAP));
+      demoTimers.push(onT, offT);
+      t += dur;
+    });
+
+    const endT = setTimeout(() => { if (demoPlaying) stopDemo(); }, t + 300);
+    demoTimers.push(endT);
+  }
+
+  demoBtn.addEventListener("click", () => {
+    if (demoPlaying) stopDemo(); else playDemo();
+  });
+
+  // Prevent context menu / scrolling glitches on the keys during touch.
+  keysEl.addEventListener("contextmenu", (e) => e.preventDefault());
+  document.addEventListener("touchstart", () => ensureAudio(), { once: true });
+})();
+</script>
+</body>
+</html>
