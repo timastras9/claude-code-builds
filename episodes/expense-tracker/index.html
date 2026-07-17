@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Expense Tracker</title>
+<style>
+  :root {
+    --bg: #0f1220;
+    --panel: #1a1e33;
+    --panel-2: #232842;
+    --text: #e8ebf5;
+    --muted: #9aa2c0;
+    --accent: #6c8cff;
+    --border: #2c3252;
+    --danger: #ff6b6b;
+    --food: #ff7a7a;
+    --transport: #ffb057;
+    --shopping: #ffe066;
+    --bills: #63d3a6;
+    --entertainment: #6c8cff;
+    --other: #c77dff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: radial-gradient(1200px 600px at 80% -10%, #232a4d 0%, var(--bg) 55%);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 32px 16px;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  header { margin-bottom: 24px; }
+  h1 { margin: 0; font-size: 28px; letter-spacing: -0.5px; }
+  .sub { color: var(--muted); margin-top: 4px; font-size: 14px; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr;
+    gap: 20px;
+    align-items: start;
+  }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+  }
+  .card h2 { margin: 0 0 16px; font-size: 16px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+
+  form { display: grid; gap: 12px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  label { display: grid; gap: 6px; font-size: 12px; color: var(--muted); }
+  input, select, button {
+    font: inherit;
+    color: var(--text);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    outline: none;
+  }
+  input:focus, select:focus { border-color: var(--accent); }
+  button.add {
+    background: linear-gradient(180deg, #7d9aff, #5a78f0);
+    border: none;
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 12px;
+    margin-top: 4px;
+  }
+  button.add:hover { filter: brightness(1.05); }
+
+  .total {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border);
+  }
+  .total .label { color: var(--muted); font-size: 13px; }
+  .total .amount { font-size: 32px; font-weight: 700; letter-spacing: -1px; }
+
+  ul.expenses { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-height: 340px; overflow-y: auto; }
+  ul.expenses li {
+    display: grid; grid-template-columns: 10px 1fr auto auto; align-items: center; gap: 12px;
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .exp-main { min-width: 0; }
+  .exp-desc { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .exp-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .exp-amt { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .del {
+    background: transparent; border: none; color: var(--muted); cursor: pointer;
+    font-size: 18px; line-height: 1; padding: 4px 8px; border-radius: 8px;
+  }
+  .del:hover { color: var(--danger); background: rgba(255,107,107,0.12); }
+  .empty { color: var(--muted); font-size: 14px; text-align: center; padding: 24px 0; }
+
+  .chart-wrap { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+  canvas { max-width: 100%; }
+  .legend { display: grid; gap: 8px; width: 100%; }
+  .legend-item { display: grid; grid-template-columns: 12px 1fr auto; align-items: center; gap: 10px; font-size: 13px; }
+  .legend-item .swatch { width: 12px; height: 12px; border-radius: 3px; }
+  .legend-item .lname { color: var(--text); }
+  .legend-item .lval { color: var(--muted); font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>💸 Expense Tracker</h1>
+    <div class="sub">Track spending, watch it split by category — all saved in your browser.</div>
+  </header>
+
+  <div class="grid">
+    <div style="display:grid; gap:20px;">
+      <div class="card">
+        <h2>Add an expense</h2>
+        <form id="expense-form">
+          <label>Description
+            <input type="text" id="description" placeholder="e.g. Lunch at cafe" required maxlength="60">
+          </label>
+          <div class="row">
+            <label>Amount
+              <input type="number" id="amount" placeholder="0.00" step="0.01" min="0.01" required>
+            </label>
+            <label>Category
+              <select id="category">
+                <option value="Food">Food</option>
+                <option value="Transport">Transport</option>
+                <option value="Shopping">Shopping</option>
+                <option value="Bills">Bills</option>
+                <option value="Entertainment">Entertainment</option>
+                <option value="Other">Other</option>
+              </select>
+            </label>
+          </div>
+          <label>Date
+            <input type="date" id="date" required>
+          </label>
+          <button type="submit" class="add">Add Expense</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Expenses</h2>
+        <div class="total">
+          <span class="label">This month's total</span>
+          <span class="amount" id="total">$0.00</span>
+        </div>
+        <ul class="expenses" id="expense-list"></ul>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Spending by category</h2>
+      <div class="chart-wrap">
+        <canvas id="chart" width="280" height="280"></canvas>
+        <div class="legend" id="legend"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  const CATEGORIES = ["Food", "Transport", "Shopping", "Bills", "Entertainment", "Other"];
+  const COLORS = {
+    Food: "#ff7a7a",
+    Transport: "#ffb057",
+    Shopping: "#ffe066",
+    Bills: "#63d3a6",
+    Entertainment: "#6c8cff",
+    Other: "#c77dff"
+  };
+  const STORAGE_KEY = "expense-tracker-v1";
+
+  // --- date helpers -------------------------------------------------------
+  function todayISO() {
+    const d = new Date();
+    const off = d.getTimezoneOffset();
+    return new Date(d.getTime() - off * 60000).toISOString().slice(0, 10);
+  }
+  function daysAgoISO(n) {
+    const d = new Date();
+    d.setDate(d.getDate() - n);
+    const off = d.getTimezoneOffset();
+    return new Date(d.getTime() - off * 60000).toISOString().slice(0, 10);
+  }
+
+  // --- seed data ----------------------------------------------------------
+  function seedExpenses() {
+    return [
+      { id: id(), description: "Grocery run",        amount: 84.20,  category: "Food",          date: daysAgoISO(1) },
+      { id: id(), description: "Monthly transit pass", amount: 62.00, category: "Transport",    date: daysAgoISO(3) },
+      { id: id(), description: "Electricity bill",   amount: 110.45, category: "Bills",         date: daysAgoISO(5) },
+      { id: id(), description: "New running shoes",  amount: 96.99,  category: "Shopping",      date: daysAgoISO(6) },
+      { id: id(), description: "Movie night",        amount: 32.50,  category: "Entertainment", date: daysAgoISO(8) },
+      { id: id(), description: "Coffee & pastry",    amount: 11.75,  category: "Food",          date: daysAgoISO(2) },
+      { id: id(), description: "Ride share home",    amount: 18.30,  category: "Transport",     date: daysAgoISO(4) },
+      { id: id(), description: "Phone plan",         amount: 45.00,  category: "Bills",         date: daysAgoISO(10) }
+    ];
+  }
+
+  let _seq = 0;
+  function id() {
+    return Date.now().toString(36) + "-" + (_seq++).toString(36) + "-" + Math.floor(Math.random() * 1e6).toString(36);
+  }
+
+  // --- state / persistence ------------------------------------------------
+  let expenses = load();
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw === null) {
+        const seeded = seedExpenses();
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(seeded));
+        return seeded;
+      }
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function save() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(expenses));
+    } catch (e) { /* storage full or unavailable — keep in memory */ }
+  }
+
+  // --- money helper -------------------------------------------------------
+  function money(n) {
+    return "$" + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  // --- DOM refs -----------------------------------------------------------
+  const form = document.getElementById("expense-form");
+  const descInput = document.getElementById("description");
+  const amountInput = document.getElementById("amount");
+  const categoryInput = document.getElementById("category");
+  const dateInput = document.getElementById("date");
+  const listEl = document.getElementById("expense-list");
+  const totalEl = document.getElementById("total");
+  const legendEl = document.getElementById("legend");
+  const canvas = document.getElementById("chart");
+  const ctx = canvas.getContext("2d");
+
+  dateInput.value = todayISO();
+
+  // --- add / delete -------------------------------------------------------
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    const amount = parseFloat(amountInput.value);
+    const description = descInput.value.trim();
+    if (!description || !(amount > 0)) return;
+
+    expenses.unshift({
+      id: id(),
+      description: description,
+      amount: Math.round(amount * 100) / 100,
+      category: categoryInput.value,
+      date: dateInput.value || todayISO()
+    });
+    save();
+    render();
+
+    form.reset();
+    dateInput.value = todayISO();
+    categoryInput.value = "Food";
+    descInput.focus();
+  });
+
+  listEl.addEventListener("click", function (e) {
+    const btn = e.target.closest("button.del");
+    if (!btn) return;
+    const rid = btn.getAttribute("data-id");
+    expenses = expenses.filter(function (x) { return x.id !== rid; });
+    save();
+    render();
+  });
+
+  // --- rendering ----------------------------------------------------------
+  function monthlyTotal() {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    return expenses.reduce(function (sum, x) {
+      const d = new Date(x.date + "T00:00:00");
+      if (d.getFullYear() === y && d.getMonth() === m) return sum + x.amount;
+      return sum;
+    }, 0);
+  }
+
+  function categoryTotals() {
+    const totals = {};
+    CATEGORIES.forEach(function (c) { totals[c] = 0; });
+    expenses.forEach(function (x) {
+      if (totals.hasOwnProperty(x.category)) totals[x.category] += x.amount;
+      else totals.Other += x.amount;
+    });
+    return totals;
+  }
+
+  function fmtDate(iso) {
+    const d = new Date(iso + "T00:00:00");
+    if (isNaN(d)) return iso;
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+
+  function renderList() {
+    listEl.innerHTML = "";
+    if (expenses.length === 0) {
+      const li = document.createElement("li");
+      li.className = "empty";
+      li.style.gridColumn = "1 / -1";
+      li.textContent = "No expenses yet — add one above.";
+      listEl.appendChild(li);
+      return;
+    }
+    expenses.forEach(function (x) {
+      const li = document.createElement("li");
+
+      const dot = document.createElement("span");
+      dot.className = "dot";
+      dot.style.background = COLORS[x.category] || COLORS.Other;
+
+      const main = document.createElement("div");
+      main.className = "exp-main";
+      const desc = document.createElement("div");
+      desc.className = "exp-desc";
+      desc.textContent = x.description;
+      const meta = document.createElement("div");
+      meta.className = "exp-meta";
+      meta.textContent = x.category + " · " + fmtDate(x.date);
+      main.appendChild(desc);
+      main.appendChild(meta);
+
+      const amt = document.createElement("div");
+      amt.className = "exp-amt";
+      amt.textContent = money(x.amount);
+
+      const del = document.createElement("button");
+      del.className = "del";
+      del.setAttribute("data-id", x.id);
+      del.setAttribute("aria-label", "Delete " + x.description);
+      del.textContent = "×";
+
+      li.appendChild(dot);
+      li.appendChild(main);
+      li.appendChild(amt);
+      li.appendChild(del);
+      listEl.appendChild(li);
+    });
+  }
+
+  function renderChart() {
+    const totals = categoryTotals();
+    const entries = CATEGORIES
+      .map(function (c) { return { category: c, value: totals[c] }; })
+      .filter(function (e) { return e.value > 0; });
+
+    const grand = entries.reduce(function (s, e) { return s + e.value; }, 0);
+
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    const cx = W / 2, cy = H / 2;
+    const r = Math.min(W, H) / 2 - 8;
+    const inner = r * 0.55;
+
+    if (grand === 0) {
+      ctx.strokeStyle = "#2c3252";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = "#9aa2c0";
+      ctx.font = "14px -apple-system, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("No data", cx, cy);
+      legendEl.innerHTML = "";
+      return;
+    }
+
+    let start = -Math.PI / 2;
+    entries.forEach(function (e) {
+      const slice = (e.value / grand) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.arc(cx, cy, r, start, start + slice);
+      ctx.closePath();
+      ctx.fillStyle = COLORS[e.category] || COLORS.Other;
+      ctx.fill();
+      start += slice;
+    });
+
+    // donut hole
+    ctx.beginPath();
+    ctx.arc(cx, cy, inner, 0, Math.PI * 2);
+    ctx.fillStyle = "#1a1e33";
+    ctx.fill();
+
+    // center label
+    ctx.fillStyle = "#e8ebf5";
+    ctx.font = "bold 20px -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(money(grand), cx, cy - 6);
+    ctx.fillStyle = "#9aa2c0";
+    ctx.font = "11px -apple-system, sans-serif";
+    ctx.fillText("total spend", cx, cy + 12);
+
+    // legend
+    legendEl.innerHTML = "";
+    entries.sort(function (a, b) { return b.value - a.value; }).forEach(function (e) {
+      const pct = ((e.value / grand) * 100).toFixed(0);
+      const row = document.createElement("div");
+      row.className = "legend-item";
+      const sw = document.createElement("span");
+      sw.className = "swatch";
+      sw.style.background = COLORS[e.category] || COLORS.Other;
+      const name = document.createElement("span");
+      name.className = "lname";
+      name.textContent = e.category;
+      const val = document.createElement("span");
+      val.className = "lval";
+      val.textContent = money(e.value) + " · " + pct + "%";
+      row.appendChild(sw);
+      row.appendChild(name);
+      row.appendChild(val);
+      legendEl.appendChild(row);
+    });
+  }
+
+  function render() {
+    totalEl.textContent = money(monthlyTotal());
+    renderList();
+    renderChart();
+  }
+
+  render();
+})();
+</script>
+</body>
+</html>
