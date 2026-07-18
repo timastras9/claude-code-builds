@@ -1,0 +1,18 @@
+{
+  "name": "realtime-chat",
+  "version": "1.0.0",
+  "description": "Real-time chat with Express + ws",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "./test.sh"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "express": "^5.2.1",
+    "ws": "^8.21.1"
+  }
+}

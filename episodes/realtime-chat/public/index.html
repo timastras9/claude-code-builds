@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chat</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="login" class="login">
+      <form class="login-card" id="login-form">
+        <h1>Welcome back</h1>
+        <p class="login-sub">Pick a name and a room to start talking.</p>
+
+        <label for="username">Username</label>
+        <input
+          id="username"
+          name="username"
+          maxlength="24"
+          autocomplete="off"
+          placeholder="e.g. tim"
+          required
+        />
+
+        <label for="room">Room</label>
+        <div class="room-picker" id="room-picker">
+          <button type="button" class="room-chip active" data-room="General">
+            # General
+          </button>
+          <button type="button" class="room-chip" data-room="Dev">
+            # Dev
+          </button>
+          <button type="button" class="room-chip" data-room="Random">
+            # Random
+          </button>
+        </div>
+
+        <button class="primary" type="submit">Join chat</button>
+        <p class="login-error" id="login-error"></p>
+      </form>
+    </div>
+
+    <div id="app" class="app hidden">
+      <nav class="rooms">
+        <div class="brand">chat</div>
+        <div class="room-list" id="room-list"></div>
+        <div class="me">
+          <span class="avatar" id="me-avatar"></span>
+          <span class="me-name" id="me-name"></span>
+        </div>
+      </nav>
+
+      <main class="main">
+        <header class="topbar">
+          <span class="hash">#</span>
+          <h2 id="room-title">General</h2>
+          <span class="status" id="status">connecting…</span>
+        </header>
+
+        <div class="messages" id="messages"></div>
+
+        <div class="typing" id="typing"></div>
+
+        <form class="composer" id="composer">
+          <input
+            id="input"
+            autocomplete="off"
+            maxlength="2000"
+            placeholder="Message #General"
+          />
+          <button type="submit" aria-label="Send">Send</button>
+        </form>
+      </main>
+
+      <aside class="sidebar">
+        <h3>Online — <span id="user-count">0</span></h3>
+        <ul class="users" id="users"></ul>
+      </aside>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
