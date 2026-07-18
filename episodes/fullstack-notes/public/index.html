@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Notes</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+<!-- ============================ auth screen ============================ -->
+<div id="auth" class="auth">
+  <div class="auth-card">
+    <div class="auth-mark">N</div>
+    <h1 id="auth-title">Welcome back</h1>
+    <p class="auth-sub" id="auth-sub">Sign in to open your notebook.</p>
+
+    <form id="auth-form" autocomplete="on">
+      <label for="username">Username</label>
+      <input id="username" name="username" type="text" autocomplete="username" required />
+
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required />
+
+      <p class="auth-error" id="auth-error" hidden></p>
+
+      <button type="submit" class="btn btn-primary btn-block" id="auth-submit">Sign in</button>
+    </form>
+
+    <p class="auth-switch">
+      <span id="auth-switch-text">New here?</span>
+      <button type="button" class="linkish" id="auth-toggle">Create an account</button>
+    </p>
+
+    <p class="auth-demo">Demo account — <code>demo</code> / <code>demo1234</code></p>
+  </div>
+</div>
+
+<!-- ============================= app shell ============================= -->
+<div id="app" hidden>
+  <header class="topbar">
+    <div class="brand"><span class="mark">N</span> Notes</div>
+
+    <div class="search-wrap">
+      <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/>
+      </svg>
+      <input id="search" type="search" placeholder="Search notes" aria-label="Search notes" />
+    </div>
+
+    <div class="topbar-right">
+      <span class="who" id="who"></span>
+      <button class="btn btn-ghost" id="logout">Sign out</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- composer -->
+    <section class="composer" id="composer">
+      <input id="new-title" class="composer-title" placeholder="Title" />
+      <textarea id="new-body" class="composer-body" placeholder="Take a note…" rows="1"></textarea>
+      <div class="composer-actions">
+        <button class="btn btn-primary" id="new-save">Add note</button>
+        <button class="btn btn-ghost" id="new-cancel">Cancel</button>
+      </div>
+    </section>
+
+    <div id="grid" class="grid"></div>
+
+    <p class="empty" id="empty" hidden></p>
+  </main>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
