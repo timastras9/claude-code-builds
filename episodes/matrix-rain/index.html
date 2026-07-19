@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Matrix Digital Rain</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #000; overflow: hidden; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="rain"></canvas>
+<script>
+(function () {
+  var canvas = document.getElementById('rain');
+  var ctx = canvas.getContext('2d');
+
+  // Half-width katakana + digits + a few latin glyphs, like the film's glyph set.
+  var GLYPHS = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ0123456789:.=*+-<>¦'.split('');
+
+  var FONT_SIZE = 16;
+  var columns = [];
+  var colWidth = FONT_SIZE;
+  var dpr = 1;
+  var w = 0, h = 0;
+
+  function randGlyph() {
+    return GLYPHS[(Math.random() * GLYPHS.length) | 0];
+  }
+
+  function makeColumn(rows) {
+    return {
+      // Start scattered above the viewport so the screen fills organically.
+      y: -Math.random() * rows,
+      speed: 0.25 + Math.random() * 0.55,   // rows per frame
+      len: 8 + (Math.random() * 24) | 0,     // trail length in rows
+      chars: [],
+      // Each column mutates its glyphs at its own pace.
+      mutate: 0.02 + Math.random() * 0.06
+    };
+  }
+
+  function resize() {
+    dpr = window.devicePixelRatio || 1;
+    w = window.innerWidth;
+    h = window.innerHeight;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.font = FONT_SIZE + 'px "MS Gothic", "Hiragino Kaku Gothic ProN", monospace';
+    ctx.textBaseline = 'top';
+
+    var count = Math.ceil(w / colWidth);
+    var rows = Math.ceil(h / FONT_SIZE);
+    var next = [];
+    for (var i = 0; i < count; i++) {
+      next[i] = columns[i] || makeColumn(rows);
+    }
+    columns = next;
+
+    // Repaint the background so the resize doesn't leave stretched garbage.
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, w, h);
+  }
+
+  function draw() {
+    // Translucent black wash produces the fading trail.
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.055)';
+    ctx.fillRect(0, 0, w, h);
+
+    var rows = Math.ceil(h / FONT_SIZE);
+
+    for (var i = 0; i < columns.length; i++) {
+      var col = columns[i];
+      var x = i * colWidth;
+      var head = col.y | 0;
+
+      for (var j = 0; j < col.len; j++) {
+        var row = head - j;
+        if (row < 0 || row > rows) continue;
+
+        var ch = col.chars[row];
+        if (ch === undefined || Math.random() < col.mutate) {
+          ch = col.chars[row] = randGlyph();
+        }
+
+        var y = row * FONT_SIZE;
+        if (j === 0) {
+          // Leading character: near-white with a green bloom.
+          ctx.shadowColor = 'rgba(140, 255, 170, 0.9)';
+          ctx.shadowBlur = 12;
+          ctx.fillStyle = '#d9ffe4';
+        } else {
+          var fade = 1 - j / col.len;
+          ctx.shadowColor = 'rgba(0, 255, 90, 0.55)';
+          ctx.shadowBlur = j < 3 ? 8 : 0;
+          ctx.fillStyle = 'rgba(0, ' + (150 + 105 * fade | 0) + ', 70, ' + (0.12 + 0.88 * fade).toFixed(3) + ')';
+        }
+        ctx.fillText(ch, x, y);
+      }
+
+      ctx.shadowBlur = 0;
+
+      col.y += col.speed;
+
+      // Once the whole trail has cleared the bottom, respawn the column.
+      if (col.y - col.len > rows) {
+        col.y = -Math.random() * 20;
+        col.speed = 0.25 + Math.random() * 0.55;
+        col.len = 8 + (Math.random() * 24) | 0;
+        col.mutate = 0.02 + Math.random() * 0.06;
+        col.chars = [];
+      }
+    }
+
+    requestAnimationFrame(draw);
+  }
+
+  window.addEventListener('resize', resize);
+  resize();
+  requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>
