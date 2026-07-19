@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Starlink Constellation — Real SGP4</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#02040a;overflow:hidden;}
+  canvas{display:block;width:100vw;height:100vh;}
+  #cap{
+    position:fixed;left:26px;bottom:22px;
+    font:500 11px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;
+    letter-spacing:.22em;text-transform:uppercase;
+    color:#7fd4ff;opacity:.34;pointer-events:none;user-select:none;
+  }
+  #cap b{display:block;font-weight:600;letter-spacing:.3em;color:#cdeaff;opacity:.85;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="cap"><b>Starlink</b><span id="capn">real orbital data · sgp4</span></div>
+
+<script src="satellite.min.js"></script>
+<script src="starlink-data.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var EARTH_R_KM = 6371;
+  var TIME_SCALE = 160;      // orbits flow: ~95 min period -> ~36 s on screen
+  var TRAIL_FADE = 0.30;     // per-frame decay -> a short ~6 px motion smear
+  var TILT       = 22 * Math.PI / 180;
+  var GLOBE_FRAC = 0.34;     // globe radius as fraction of min(viewport)
+
+  var canvas = document.getElementById('c');
+  var ctx    = canvas.getContext('2d', { alpha: false });
+
+  // satellites render into their own layer that fades each frame, so the swarm
+  // leaves a soft motion trail without re-propagating a look-back position.
+  var layer  = document.createElement('canvas');
+  var lctx   = layer.getContext('2d');
+
+  // ---------------------------------------------------------------- satellites
+  var recs = [];
+  (function buildRecs() {
+    var src = window.SAT || [];
+    for (var i = 0; i < src.length; i++) {
+      try {
+        var r = satellite.twoline2satrec(src[i][0], src[i][1]);
+        // keep only records that actually produce a finite position
+        var p = satellite.propagate(r, new Date());
+        if (p && p.position && isFinite(p.position.x)) {
+          recs.push({ rec: r });
+        }
+      } catch (e) { /* skip malformed TLE */ }
+    }
+  })();
+  document.getElementById('capn').textContent =
+    recs.length + ' satellites · real orbital data · sgp4';
+
+  // ---------------------------------------------------------------- dot sprite
+  var SPR = 32, sprite = document.createElement('canvas');
+  sprite.width = sprite.height = SPR;
+  (function () {
+    var g = sprite.getContext('2d');
+    var rg = g.createRadialGradient(SPR / 2, SPR / 2, 0, SPR / 2, SPR / 2, SPR / 2);
+    rg.addColorStop(0.00, 'rgba(255,255,255,1)');
+    rg.addColorStop(0.18, 'rgba(226,248,255,0.95)');
+    rg.addColorStop(0.42, 'rgba(96,214,255,0.42)');
+    rg.addColorStop(1.00, 'rgba(40,140,255,0)');
+    g.fillStyle = rg;
+    g.fillRect(0, 0, SPR, SPR);
+  })();
+
+  // ---------------------------------------------------------------- viewport
+  var W = 0, H = 0, CX = 0, CY = 0, R = 0, dpr = 1, stars = [];
+
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width  = layer.width  = Math.round(W * dpr);
+    canvas.height = layer.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    lctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    CX = W / 2;
+    CY = H / 2;
+    R  = Math.min(W, H) * GLOBE_FRAC;
+    seedStars();
+  }
+
+  function seedStars() {
+    stars.length = 0;
+    var n = Math.round((W * H) / 2600);
+    if (n > 900) n = 900;
+    for (var i = 0; i < n; i++) {
+      stars.push({
+        x: Math.random() * W,
+        y: Math.random() * H,
+        r: Math.random() * 0.9 + 0.25,
+        a: Math.random() * 0.45 + 0.12,
+        p: Math.random() * Math.PI * 2,
+        s: Math.random() * 0.9 + 0.35
+      });
+    }
+  }
+  window.addEventListener('resize', resize);
+
+  // ---------------------------------------------------------------- geometry
+  // ECI -> screen. Globe spins with true GMST, so the plot stays physical.
+  var cg = 1, sg = 0, ct = Math.cos(TILT), st = Math.sin(TILT);
+
+  // returns [sx, sy, depth] ; depth > 0 == nearer the viewer (+Y is toward camera)
+  function project(x, y, z, out) {
+    var x1 =  x * cg + y * sg;
+    var y1 = -x * sg + y * cg;
+    var y2 = y1 * ct - z * st;
+    var z2 = y1 * st + z * ct;
+    out[0] = CX + x1 * R;
+    out[1] = CY - z2 * R;
+    out[2] = y2;
+    return out;
+  }
+
+  // Approximate solar direction in ECI (unit) — drives the terminator shading.
+  function sunECI(date) {
+    var jd = date.getTime() / 86400000 + 2440587.5;
+    var n  = jd - 2451545.0;
+    var L  = (280.460 + 0.9856474 * n) * Math.PI / 180;
+    var g  = (357.528 + 0.9856003 * n) * Math.PI / 180;
+    var lam = L + (1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * Math.PI / 180;
+    var eps = 23.439 * Math.PI / 180;
+    return [Math.cos(lam), Math.cos(eps) * Math.sin(lam), Math.sin(eps) * Math.sin(lam)];
+  }
+
+  // graticule: lat/lon lines as ECF unit points, rotated into ECI by GMST
+  var GRAT = (function () {
+    var lines = [], i, j, pts, lat, lon, cl;
+    for (i = -60; i <= 60; i += 30) {            // parallels
+      lat = i * Math.PI / 180; pts = []; cl = Math.cos(lat);
+      for (j = 0; j <= 96; j++) {
+        lon = j / 96 * Math.PI * 2;
+        pts.push(cl * Math.cos(lon), cl * Math.sin(lon), Math.sin(lat));
+      }
+      lines.push(pts);
+    }
+    for (i = 0; i < 12; i++) {                   // meridians
+      lon = i / 12 * Math.PI * 2; pts = [];
+      for (j = 0; j <= 64; j++) {
+        lat = -Math.PI / 2 + j / 64 * Math.PI; cl = Math.cos(lat);
+        pts.push(cl * Math.cos(lon), cl * Math.sin(lon), Math.sin(lat));
+      }
+      lines.push(pts);
+    }
+    return lines;
+  })();
+
+  // ---------------------------------------------------------------- draw
+  var t0 = Date.now();
+  var pv = [0, 0, 0], sv = [0, 0, 0];
+
+  function frame() {
+    var wall = Date.now();
+    var simMs = t0 + (wall - t0) * TIME_SCALE;
+    var now   = new Date(simMs);
+
+    var gmst = satellite.gstime(now);
+    cg = Math.cos(gmst); sg = Math.sin(gmst);
+
+    // ---- space
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#02040a';
+    ctx.fillRect(0, 0, W, H);
+
+    // ---- starfield
+    var ts = wall / 1000;
+    for (var i = 0; i < stars.length; i++) {
+      var s = stars[i];
+      ctx.globalAlpha = s.a * (0.72 + 0.28 * Math.sin(ts * s.s + s.p));
+      ctx.fillStyle = '#dceeff';
+      ctx.fillRect(s.x, s.y, s.r, s.r);
+    }
+    ctx.globalAlpha = 1;
+
+    // ---- atmospheric glow rim (additive, sits outside the limb)
+    ctx.globalCompositeOperation = 'lighter';
+    var glow = ctx.createRadialGradient(CX, CY, R * 0.92, CX, CY, R * 1.30);
+    glow.addColorStop(0.00, 'rgba(28,110,190,0.00)');
+    glow.addColorStop(0.13, 'rgba(46,150,235,0.34)');
+    glow.addColorStop(0.34, 'rgba(30,116,205,0.15)');
+    glow.addColorStop(1.00, 'rgba(10,40,90,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(CX, CY, R * 1.30, 0, Math.PI * 2);
+    ctx.fill();
+
+    // ---- globe body, lit from the true sun direction
+    ctx.globalCompositeOperation = 'source-over';
+    var sun = sunECI(now);
+    project(sun[0], sun[1], sun[2], sv);
+    var lx = (sv[0] - CX) / R, ly = (sv[1] - CY) / R;
+    var lm = Math.sqrt(lx * lx + ly * ly) || 1;
+    if (lm > 1) { lx /= lm; ly /= lm; }
+
+    var body = ctx.createRadialGradient(
+      CX + lx * R * 0.55, CY + ly * R * 0.55, R * 0.04,
+      CX, CY, R * 1.02
+    );
+    body.addColorStop(0.00, '#0f2740');
+    body.addColorStop(0.35, '#081827');
+    body.addColorStop(0.72, '#040d18');
+    body.addColorStop(1.00, '#01050b');
+    ctx.fillStyle = body;
+    ctx.beginPath();
+    ctx.arc(CX, CY, R, 0, Math.PI * 2);
+    ctx.fill();
+
+    // ---- graticule (front hemisphere only)
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(86,178,240,0.16)';
+    for (var g = 0; g < GRAT.length; g++) {
+      var pts = GRAT[g], pen = false;
+      ctx.beginPath();
+      for (var k = 0; k < pts.length; k += 3) {
+        project(pts[k], pts[k + 1], pts[k + 2], pv);
+        if (pv[2] >= 0) {
+          if (pen) ctx.lineTo(pv[0], pv[1]);
+          else { ctx.moveTo(pv[0], pv[1]); pen = true; }
+        } else pen = false;
+      }
+      ctx.stroke();
+    }
+
+    // ---- crisp limb
+    ctx.strokeStyle = 'rgba(120,205,255,0.30)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(CX, CY, R, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // ---- satellites: fade the layer, then stamp this frame's positions
+    lctx.globalCompositeOperation = 'destination-out';
+    lctx.globalAlpha = 1;
+    lctx.fillStyle = 'rgba(0,0,0,' + TRAIL_FADE + ')';
+    lctx.fillRect(0, 0, W, H);
+    lctx.globalCompositeOperation = 'lighter';
+
+    for (var n = 0; n < recs.length; n++) {
+      var e = recs[n], pos;
+      try { pos = satellite.propagate(e.rec, now); }
+      catch (err) { pos = null; }
+      if (!pos || !pos.position) continue;
+
+      var p = pos.position;
+      var x = p.x / EARTH_R_KM, y = p.y / EARTH_R_KM, z = p.z / EARTH_R_KM;
+      if (!isFinite(x) || !isFinite(y) || !isFinite(z)) continue;
+
+      project(x, y, z, pv);
+      var sx = pv[0], sy = pv[1], d = pv[2];
+
+      // occlusion: behind the centre plane AND inside the disc == hidden
+      var rx = (sx - CX) / R, ry = (sy - CY) / R;
+      if (d < 0 && rx * rx + ry * ry < 1) continue;
+
+      // depth shading: front hemisphere brighter and slightly larger
+      var dn = (d + 1.1) / 2.2;                 // 0..1
+      if (dn < 0) dn = 0; else if (dn > 1) dn = 1;
+      var a  = 0.28 + 0.72 * dn * dn;
+      var sz = 4.0 + 5.6 * dn;
+
+      lctx.globalAlpha = a;
+      lctx.drawImage(sprite, sx - sz / 2, sy - sz / 2, sz, sz);
+    }
+
+    // ---- composite the swarm over the globe
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 1;
+    ctx.drawImage(layer, 0, 0, W, H);
+
+    ctx.globalCompositeOperation = 'source-over';
+    requestAnimationFrame(frame);
+  }
+
+  resize();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
