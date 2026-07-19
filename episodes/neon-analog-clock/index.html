@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Neon Clock</title>
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #05060a;
+    overflow: hidden;
+  }
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* soft ambient wash so the clock sits in light, not on a flat void */
+    background:
+      radial-gradient(circle at 50% 45%, #101828 0%, #07080f 55%, #04050a 100%);
+  }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="clock"></canvas>
+<script>
+(function () {
+  const canvas = document.getElementById('clock');
+  const ctx = canvas.getContext('2d');
+
+  // palette
+  const CYAN    = '#00e5ff';
+  const MAGENTA = '#ff2bd6';
+  const VIOLET  = '#9b6bff';
+  const WARM    = '#fff2a8';
+
+  let R = 0, cx = 0, cy = 0;
+
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    const w = window.innerWidth, h = window.innerHeight;
+    canvas.width  = w * dpr;
+    canvas.height = h * dpr;
+    canvas.style.width  = w + 'px';
+    canvas.style.height = h + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    cx = w / 2; cy = h / 2;
+    R = Math.min(w, h) * 0.38;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // Draws a stroke twice: a wide blurred pass (the glow) then a tight bright
+  // core. This is what sells the neon-tube look.
+  function neon(color, width, glow, alpha, drawPath) {
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.shadowColor = color;
+    ctx.strokeStyle = color;
+
+    ctx.globalAlpha = alpha * 0.55;
+    ctx.shadowBlur = glow;
+    ctx.lineWidth = width * 1.9;
+    drawPath();
+    ctx.stroke();
+
+    ctx.globalAlpha = alpha;
+    ctx.shadowBlur = glow * 0.5;
+    ctx.lineWidth = width;
+    drawPath();
+    ctx.stroke();
+
+    // white-hot filament
+    ctx.globalAlpha = alpha * 0.9;
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    ctx.lineWidth = Math.max(0.6, width * 0.3);
+    drawPath();
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function hand(angle, length, width, color, glow, alpha, back) {
+    back = back || length * 0.18;
+    const sx = cx - Math.sin(angle) * back;
+    const sy = cy + Math.cos(angle) * back;
+    const ex = cx + Math.sin(angle) * length;
+    const ey = cy - Math.cos(angle) * length;
+    neon(color, width, glow, alpha, function () {
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(ex, ey);
+    });
+  }
+
+  function frame() {
+    const now = new Date();
+    // fractional seconds -> genuinely smooth sweep on every hand
+    const ms   = now.getMilliseconds() / 1000;
+    const sec  = now.getSeconds() + ms;
+    const min  = now.getMinutes() + sec / 60;
+    const hour = (now.getHours() % 12) + min / 60;
+
+    const TAU = Math.PI * 2;
+    const aSec  = (sec  / 60) * TAU;
+    const aMin  = (min  / 60) * TAU;
+    const aHour = (hour / 12) * TAU;
+
+    // pulse: sharp flash on the tick, decaying over ~0.45s
+    const pulse = Math.pow(1 - Math.min(ms / 0.45, 1), 2.2);
+
+    const w = canvas.width / (window.devicePixelRatio || 1);
+    const h = canvas.height / (window.devicePixelRatio || 1);
+    ctx.clearRect(0, 0, w, h);
+
+    // ---- ambient halo behind the dial, breathing with the pulse ----
+    const halo = ctx.createRadialGradient(cx, cy, R * 0.1, cx, cy, R * 1.65);
+    halo.addColorStop(0,   'rgba(0,229,255,' + (0.10 + pulse * 0.07) + ')');
+    halo.addColorStop(0.5, 'rgba(155,107,255,0.05)');
+    halo.addColorStop(1,   'rgba(0,0,0,0)');
+    ctx.fillStyle = halo;
+    ctx.fillRect(0, 0, w, h);
+
+    // ---- outer rings ----
+    neon(CYAN, R * 0.016, 46 + pulse * 26, 0.9, function () {
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, 0, TAU);
+    });
+    neon(VIOLET, R * 0.006, 24, 0.45, function () {
+      ctx.beginPath();
+      ctx.arc(cx, cy, R * 1.075, 0, TAU);
+    });
+
+    // ---- tick marks ----
+    for (let i = 0; i < 60; i++) {
+      const a = (i / 60) * TAU;
+      const isHour = i % 5 === 0;
+      const outer = R * 0.93;
+      const inner = outer - (isHour ? R * 0.11 : R * 0.045);
+      const col = isHour ? CYAN : VIOLET;
+      // the tick the second hand is currently on lights up
+      const hot = Math.floor(sec) % 60 === i;
+      const alpha = hot ? 1 : (isHour ? 0.85 : 0.35);
+      const g = hot ? 34 : (isHour ? 18 : 8);
+
+      neon(hot ? WARM : col, isHour ? R * 0.014 : R * 0.006, g, alpha, function () {
+        ctx.beginPath();
+        ctx.moveTo(cx + Math.sin(a) * inner, cy - Math.cos(a) * inner);
+        ctx.lineTo(cx + Math.sin(a) * outer, cy - Math.cos(a) * outer);
+      });
+    }
+
+    // ---- hands ----
+    hand(aHour, R * 0.50, R * 0.030, CYAN,    30 + pulse * 10, 0.95);
+    hand(aMin,  R * 0.75, R * 0.020, VIOLET,  30 + pulse * 10, 0.95);
+    hand(aSec,  R * 0.87, R * 0.008, MAGENTA, 26 + pulse * 22, 1);
+
+    // ---- hub ----
+    ctx.save();
+    ctx.shadowColor = MAGENTA;
+    ctx.shadowBlur = 24 + pulse * 26;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(cx, cy, R * 0.022 + pulse * R * 0.006, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+
+    requestAnimationFrame(frame);
+  }
+
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
