@@ -1,0 +1,113 @@
+<meta charset="utf-8">
+<title>Flow Field</title>
+<style>
+  html,body{margin:0;height:100%;background:#05060a;overflow:hidden}
+  canvas{display:block;width:100vw;height:100vh}
+</style>
+<canvas id="c"></canvas>
+<script>
+(() => {
+  const cv = document.getElementById('c');
+  const ctx = cv.getContext('2d', { alpha: false });
+  let W, H, DPR;
+
+  // ---- value-noise (Perlin-style), 3D: x, y, time -------------------------
+  const P = new Uint8Array(512);
+  (() => {
+    const p = new Uint8Array(256);
+    for (let i = 0; i < 256; i++) p[i] = i;
+    // deterministic shuffle so the field is identical every load
+    let s = 1337;
+    const rnd = () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296;
+    for (let i = 255; i > 0; i--) {
+      const j = (rnd() * (i + 1)) | 0;
+      [p[i], p[j]] = [p[j], p[i]];
+    }
+    for (let i = 0; i < 512; i++) P[i] = p[i & 255];
+  })();
+
+  const fade = t => t * t * t * (t * (t * 6 - 15) + 10);
+  const lerp = (a, b, t) => a + (b - a) * t;
+  function grad(h, x, y, z) {
+    h &= 15;
+    const u = h < 8 ? x : y;
+    const v = h < 4 ? y : (h === 12 || h === 14 ? x : z);
+    return ((h & 1) ? -u : u) + ((h & 2) ? -v : v);
+  }
+  function noise(x, y, z) {
+    const X = Math.floor(x) & 255, Y = Math.floor(y) & 255, Z = Math.floor(z) & 255;
+    x -= Math.floor(x); y -= Math.floor(y); z -= Math.floor(z);
+    const u = fade(x), v = fade(y), w = fade(z);
+    const A = P[X] + Y, AA = P[A] + Z, AB = P[A + 1] + Z;
+    const B = P[X + 1] + Y, BA = P[B] + Z, BB = P[B + 1] + Z;
+    return lerp(
+      lerp(lerp(grad(P[AA], x, y, z),     grad(P[BA], x - 1, y, z),     u),
+           lerp(grad(P[AB], x, y - 1, z), grad(P[BB], x - 1, y - 1, z), u), v),
+      lerp(lerp(grad(P[AA + 1], x, y, z - 1),     grad(P[BA + 1], x - 1, y, z - 1),     u),
+           lerp(grad(P[AB + 1], x, y - 1, z - 1), grad(P[BB + 1], x - 1, y - 1, z - 1), u), v),
+      w);
+  }
+
+  // ---- particles ----------------------------------------------------------
+  const COUNT = 800;
+  const SCALE = 0.00075;  // low frequency -> long sweeping curves, not squiggles
+  const SPEED = 1.6;      // px per frame
+  const ZSPEED = 0.0012;  // how fast the field itself morphs (per frame)
+  const ps = [];
+
+  function seed(p) {
+    p.x = Math.random() * W;
+    p.y = Math.random() * H;
+    p.px = p.x; p.py = p.y;
+    p.life = 200 + Math.random() * 500;
+    p.hue = Math.random() * 150;  // per-particle offset, added to global drift
+    p.w = 0.6 + Math.random() * 1.8;
+  }
+
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = cv.width = Math.floor(innerWidth * DPR);
+    H = cv.height = Math.floor(innerHeight * DPR);
+    ctx.fillStyle = '#05060a';
+    ctx.fillRect(0, 0, W, H);
+    ctx.lineCap = 'round';
+  }
+  addEventListener('resize', resize);
+  resize();
+
+  for (let i = 0; i < COUNT; i++) { const p = {}; seed(p); ps.push(p); }
+
+  let t = 0;
+  function frame() {
+    t++;
+    // slow fade instead of clearing -> long smooth trails
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = 'rgba(5,6,10,0.022)';
+    ctx.fillRect(0, 0, W, H);
+
+    // trails glow where they overlap
+    ctx.globalCompositeOperation = 'lighter';
+    const z = t * ZSPEED;
+    const baseHue = (t * 0.09) % 360;
+
+    for (const p of ps) {
+      const a = noise(p.x * SCALE, p.y * SCALE, z) * Math.PI * 2;
+      p.px = p.x; p.py = p.y;
+      p.x += Math.cos(a) * SPEED * DPR;
+      p.y += Math.sin(a) * SPEED * DPR;
+
+      const hue = (baseHue + p.hue) % 360;
+      ctx.strokeStyle = `hsla(${hue}, 95%, 60%, 0.5)`;
+      ctx.lineWidth = p.w * DPR;
+      ctx.beginPath();
+      ctx.moveTo(p.px, p.py);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+
+      if (--p.life < 0 || p.x < 0 || p.x > W || p.y < 0 || p.y > H) seed(p);
+    }
+    requestAnimationFrame(frame);
+  }
+  frame();
+})();
+</script>
