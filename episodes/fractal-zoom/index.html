@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Infinite Mandelbrot Zoom</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden}
+  canvas{display:block;width:100vw;height:100vh;background:#000}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(() => {
+  const view = document.getElementById('c');
+  const g = view.getContext('2d', { alpha: false });
+
+  // ---- tuning -------------------------------------------------------------
+  const BASE_W   = 3.2;    // complex width of the starting view
+  const MARGIN   = 1.7;    // how much wider than the viewport each tile renders
+  const RES      = 0.72;   // tile resolution vs. screen (blur is hidden by motion)
+  const MAX_TILE = 1024;   // hard cap on tile width, keeps deep frames cheap
+  const DOUBLE_S = 2.6;    // seconds per 2x magnification
+  const BUDGET   = 7;      // ms of fractal math per animation frame
+  const DEPTH_END= 1e12;   // double precision gives out somewhere past here
+
+  // Classic deep-zoom coordinates: each sits on the boundary, so the detail
+  // never runs out on the way down.
+  const TARGETS = [
+    [-0.743643887037151,  0.131825904205330],
+    [ 0.360240443437614, -0.641313061064803],
+    [-0.101096363845622,  0.956286510809140],
+    [-1.749086387484709,  0.000000000384660],
+    [-0.748000000000000,  0.100000000000000],
+    [ 0.250006000000000, -0.000000000100000],
+  ];
+
+  let W, H, BW, BH;        // screen px, tile px
+  let cRe, cIm;            // zoom target in the complex plane
+  let scale;               // current magnification (continuous)
+  let cur, next;           // current tile + the one being rendered one octave down
+  let alpha;               // crossfade cur -> next
+  let hue;                 // palette rotation
+  let fade;                // 0 = visible, 1 = black (used when depth resets)
+  let resetting;
+  let last;
+
+  const smoothstep = t => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
+
+  function makeTile(s) {
+    const cv = document.createElement('canvas');
+    cv.width = BW; cv.height = BH;
+    const ctx = cv.getContext('2d');
+    return {
+      cv, ctx,
+      img: ctx.createImageData(BW, BH),
+      scale: s,
+      iter: Math.min(2400, Math.round(180 + 90 * Math.log2(s))),
+      phase: Math.log2(s) * 0.11,   // palette drifts as we descend
+      row: 0,
+      done: false,
+    };
+  }
+
+  // Render as many rows of a tile as fit in the frame's time budget.
+  function work(tile, deadline) {
+    const data = tile.img.data;
+    const hw = MARGIN * BASE_W / (2 * tile.scale);
+    const hh = hw * (BH / BW);
+    const maxIter = tile.iter, phase = tile.phase;
+    const sx = 2 * hw / BW, sy = 2 * hh / BH;
+    const x0 = cRe - hw, y0 = cIm - hh;
+
+    while (tile.row < BH) {
+      const py = tile.row, ci = y0 + py * sy;
+      let p = py * BW * 4;
+      for (let px = 0; px < BW; px++) {
+        const cr = x0 + px * sx;
+        let x = 0, y = 0, x2 = 0, y2 = 0, i = 0;
+        while (x2 + y2 <= 65536 && i < maxIter) {
+          y = 2 * x * y + ci;
+          x = x2 - y2 + cr;
+          x2 = x * x; y2 = y * y;
+          i++;
+        }
+        if (i >= maxIter) {
+          data[p] = 0; data[p + 1] = 0; data[p + 2] = 4;
+        } else {
+          // smooth (fractional) escape count -> continuous bands
+          const nu = i + 1 - Math.log(Math.log(Math.sqrt(x2 + y2))) / Math.LN2;
+          const n = nu > 0 ? nu : 0;
+          const q = 6.2831853 * (0.25 * Math.sqrt(n) + phase);
+          // fall off to near-black far from the set: keeps it dark, not neon
+          const v = 0.10 + 0.90 * (1 - Math.exp(-n * 0.09));
+          data[p]     = v * (110 + 108 * Math.cos(q));
+          data[p + 1] = v * (110 + 108 * Math.cos(q + 2.0944));
+          data[p + 2] = v * (120 + 118 * Math.cos(q + 4.1888));
+        }
+        data[p + 3] = 255;
+        p += 4;
+      }
+      tile.row++;
+      if (performance.now() > deadline) break;
+    }
+
+    if (tile.row >= BH && !tile.done) {
+      tile.ctx.putImageData(tile.img, 0, 0);
+      tile.done = true;
+    }
+  }
+
+  // Draw a tile so that its slice of the complex plane lands exactly where the
+  // current magnification says it should.
+  function blit(tile, a) {
+    if (!tile.done || a <= 0.002) return;
+    const dw = W * MARGIN * scale / tile.scale;
+    const dh = H * MARGIN * scale / tile.scale;
+    g.globalAlpha = a;
+    g.drawImage(tile.cv, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    g.globalAlpha = 1;
+  }
+
+  function pickTarget() {
+    const t = TARGETS[(Math.random() * TARGETS.length) | 0];
+    cRe = t[0]; cIm = t[1];
+  }
+
+  function start() {
+    scale = 1; alpha = 0; resetting = false;
+    cur = makeTile(scale);
+    work(cur, performance.now() + 400);      // first tile: render it outright
+    next = makeTile(scale * 2);
+  }
+
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    W = Math.max(320, Math.round(innerWidth * dpr));
+    H = Math.max(240, Math.round(innerHeight * dpr));
+    view.width = W; view.height = H;
+    BW = Math.min(MAX_TILE, Math.round(W * RES));
+    BH = Math.max(2, Math.round(BW * H / W));
+    g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+    start();
+  }
+
+  function frame(now) {
+    requestAnimationFrame(frame);
+    const dt = Math.min(0.05, (now - last) / 1000 || 0);
+    last = now;
+
+    if (!resetting) scale *= Math.pow(2, dt / DOUBLE_S);
+    hue += dt * 9;
+
+    // spend the frame's remaining budget deepening the next tile
+    if (!next.done) work(next, now + BUDGET);
+
+    const u = Math.log2(scale / cur.scale);          // 0 -> 1 across one octave
+    const target = next.done ? smoothstep((u - 0.55) / 0.45) : 0;
+    alpha += (target - alpha) * Math.min(1, dt * 6);
+
+    if (next.done && alpha > 0.995 && u >= 1) {
+      cur = next; alpha = 0;
+      next = makeTile(cur.scale * 2);
+    }
+
+    // out of precision: fade to black, jump to a fresh target, fade back in
+    if (!resetting && cur.scale > DEPTH_END) resetting = true;
+    if (resetting) {
+      fade = Math.min(1, fade + dt * 1.1);
+      if (fade >= 1) { pickTarget(); start(); }
+    } else if (fade > 0) {
+      fade = Math.max(0, fade - dt * 0.8);
+    }
+
+    g.fillStyle = '#000';
+    g.fillRect(0, 0, W, H);
+    blit(cur, 1);
+    blit(next, alpha);
+
+    if (fade > 0) {
+      g.fillStyle = 'rgba(0,0,0,' + fade + ')';
+      g.fillRect(0, 0, W, H);
+    }
+    view.style.filter = 'hue-rotate(' + (hue % 360) + 'deg) saturate(1.1)';
+  }
+
+  hue = 0; fade = 0; last = performance.now();
+  pickTarget();
+  resize();
+  let rt;
+  addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(resize, 200); });
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
