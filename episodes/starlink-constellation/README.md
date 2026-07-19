@@ -1,4 +1,4 @@
-# Starlink Constellation — live map of real Starlink satellites (SGP4)
+# Starlink Constellation — Grok Build (freeze + hover, real SGP4 data)
 
 Built live and autonomously by **Claude Code** on the YouTube channel.
 

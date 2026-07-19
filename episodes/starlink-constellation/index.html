@@ -1,290 +1,667 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Starlink Constellation — Real SGP4</title>
-<style>
-  html,body{margin:0;padding:0;height:100%;background:#02040a;overflow:hidden;}
-  canvas{display:block;width:100vw;height:100vh;}
-  #cap{
-    position:fixed;left:26px;bottom:22px;
-    font:500 11px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;
-    letter-spacing:.22em;text-transform:uppercase;
-    color:#7fd4ff;opacity:.34;pointer-events:none;user-select:none;
-  }
-  #cap b{display:block;font-weight:600;letter-spacing:.3em;color:#cdeaff;opacity:.85;}
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Starlink — Orbital Swarm</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #02040a;
+      cursor: crosshair;
+      font-family: "SF Mono", "Menlo", "Consolas", "Roboto Mono", monospace;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      position: fixed;
+      inset: 0;
+    }
+    #tooltip {
+      position: fixed;
+      pointer-events: none;
+      opacity: 0;
+      transform: translate(14px, 14px);
+      z-index: 10;
+      background: rgba(4, 12, 24, 0.88);
+      border: 1px solid rgba(120, 220, 255, 0.35);
+      box-shadow:
+        0 0 24px rgba(0, 180, 255, 0.18),
+        0 8px 32px rgba(0, 0, 0, 0.55),
+        inset 0 1px 0 rgba(180, 240, 255, 0.08);
+      border-radius: 8px;
+      padding: 10px 14px;
+      color: #c8f0ff;
+      font-size: 12px;
+      line-height: 1.55;
+      letter-spacing: 0.02em;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      min-width: 210px;
+      transition: opacity 0.12s ease;
+    }
+    #tooltip.visible { opacity: 1; }
+    #tooltip .name {
+      color: #fff;
+      font-weight: 600;
+      font-size: 13px;
+      letter-spacing: 0.04em;
+      margin-bottom: 6px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid rgba(100, 200, 255, 0.2);
+      text-shadow: 0 0 12px rgba(120, 220, 255, 0.45);
+    }
+    #tooltip .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    #tooltip .label {
+      color: rgba(140, 190, 220, 0.7);
+      text-transform: uppercase;
+      font-size: 10px;
+      letter-spacing: 0.08em;
+    }
+    #tooltip .val {
+      color: #9ee8ff;
+      font-variant-numeric: tabular-nums;
+    }
+    #hud {
+      position: fixed;
+      top: 18px;
+      left: 22px;
+      z-index: 5;
+      color: rgba(160, 210, 240, 0.55);
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      pointer-events: none;
+      user-select: none;
+    }
+    #hud strong {
+      color: rgba(200, 240, 255, 0.85);
+      font-weight: 500;
+      letter-spacing: 0.2em;
+    }
+    #hud .sub {
+      margin-top: 4px;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      color: rgba(120, 180, 210, 0.4);
+    }
+    #hud .frozen {
+      color: rgba(100, 220, 255, 0.75);
+    }
+  </style>
 </head>
 <body>
-<canvas id="c"></canvas>
-<div id="cap"><b>Starlink</b><span id="capn">real orbital data · sgp4</span></div>
+  <canvas id="c"></canvas>
+  <div id="hud">
+    <strong>Starlink Constellation</strong>
+    <div class="sub" id="hud-sub">live orbital positions · SGP4</div>
+  </div>
+  <div id="tooltip"></div>
 
-<script src="satellite.min.js"></script>
-<script src="starlink-data.js"></script>
-<script>
+  <script src="satellite.min.js"></script>
+  <script src="starlink-data.js"></script>
+  <script>
 (function () {
-  'use strict';
+  "use strict";
 
-  var EARTH_R_KM = 6371;
-  var TIME_SCALE = 160;      // orbits flow: ~95 min period -> ~36 s on screen
-  var TRAIL_FADE = 0.30;     // per-frame decay -> a short ~6 px motion smear
-  var TILT       = 22 * Math.PI / 180;
-  var GLOBE_FRAC = 0.34;     // globe radius as fraction of min(viewport)
+  const EARTH_RADIUS_KM = 6371;
+  const TIME_SCALE = 180;          // seconds of sim time per real second
+  const ROTATE_SPEED = 0.07;       // rad/s globe spin
+  const TILT = 0.38;               // axial tilt for nicer framing
+  const HIT_RADIUS_PX = 10;
 
-  var canvas = document.getElementById('c');
-  var ctx    = canvas.getContext('2d', { alpha: false });
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d", { alpha: false });
+  const tooltip = document.getElementById("tooltip");
+  const hudSub = document.getElementById("hud-sub");
 
-  // satellites render into their own layer that fades each frame, so the swarm
-  // leaves a soft motion trail without re-propagating a look-back position.
-  var layer  = document.createElement('canvas');
-  var lctx   = layer.getContext('2d');
+  let W = 0, H = 0, dpr = 1;
+  let globeR = 0;
+  let cx = 0, cy = 0;
 
-  // ---------------------------------------------------------------- satellites
-  var recs = [];
-  (function buildRecs() {
-    var src = window.SAT || [];
-    for (var i = 0; i < src.length; i++) {
-      try {
-        var r = satellite.twoline2satrec(src[i][0], src[i][1]);
-        // keep only records that actually produce a finite position
-        var p = satellite.propagate(r, new Date());
-        if (p && p.position && isFinite(p.position.x)) {
-          recs.push({ rec: r });
-        }
-      } catch (e) { /* skip malformed TLE */ }
+  // Camera / view state
+  let rotY = 0.65;
+  let frozen = false;
+  let mouseX = -1e9, mouseY = -1e9;
+  let mouseIn = false;
+
+  // Simulation clock (ms since epoch, advanced by TIME_SCALE)
+  let simTime = Date.now();
+  let lastFrame = performance.now();
+
+  // Stars
+  const STARS = [];
+  function seedStars() {
+    STARS.length = 0;
+    const n = 420;
+    for (let i = 0; i < n; i++) {
+      STARS.push({
+        x: Math.random(),
+        y: Math.random(),
+        r: Math.random() * 1.2 + 0.2,
+        a: Math.random() * 0.45 + 0.15,
+        tw: Math.random() * Math.PI * 2,
+      });
     }
-  })();
-  document.getElementById('capn').textContent =
-    recs.length + ' satellites · real orbital data · sgp4';
+  }
 
-  // ---------------------------------------------------------------- dot sprite
-  var SPR = 32, sprite = document.createElement('canvas');
-  sprite.width = sprite.height = SPR;
-  (function () {
-    var g = sprite.getContext('2d');
-    var rg = g.createRadialGradient(SPR / 2, SPR / 2, 0, SPR / 2, SPR / 2, SPR / 2);
-    rg.addColorStop(0.00, 'rgba(255,255,255,1)');
-    rg.addColorStop(0.18, 'rgba(226,248,255,0.95)');
-    rg.addColorStop(0.42, 'rgba(96,214,255,0.42)');
-    rg.addColorStop(1.00, 'rgba(40,140,255,0)');
-    g.fillStyle = rg;
-    g.fillRect(0, 0, SPR, SPR);
-  })();
+  // Satellite records
+  const sats = [];
+  // Per-frame screen cache for hit testing
+  let screenSats = []; // {x,y,z,i,depth}
 
-  // ---------------------------------------------------------------- viewport
-  var W = 0, H = 0, CX = 0, CY = 0, R = 0, dpr = 1, stars = [];
+  function initSats() {
+    const raw = window.SAT || [];
+    for (let i = 0; i < raw.length; i++) {
+      const [name, l1, l2] = raw[i];
+      try {
+        const satrec = satellite.twoline2satrec(l1, l2);
+        if (satrec && satrec.error === 0) {
+          sats.push({ name, satrec, l1, l2 });
+        }
+      } catch (_) { /* skip bad TLE */ }
+    }
+  }
 
   function resize() {
     dpr = Math.min(window.devicePixelRatio || 1, 2);
     W = window.innerWidth;
     H = window.innerHeight;
-    canvas.width  = layer.width  = Math.round(W * dpr);
-    canvas.height = layer.height = Math.round(H * dpr);
+    canvas.width = Math.floor(W * dpr);
+    canvas.height = Math.floor(H * dpr);
+    canvas.style.width = W + "px";
+    canvas.style.height = H + "px";
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    lctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    CX = W / 2;
-    CY = H / 2;
-    R  = Math.min(W, H) * GLOBE_FRAC;
-    seedStars();
+    cx = W * 0.5;
+    cy = H * 0.5;
+    globeR = Math.min(W, H) * 0.36;
   }
 
-  function seedStars() {
-    stars.length = 0;
-    var n = Math.round((W * H) / 2600);
-    if (n > 900) n = 900;
-    for (var i = 0; i < n; i++) {
-      stars.push({
-        x: Math.random() * W,
-        y: Math.random() * H,
-        r: Math.random() * 0.9 + 0.25,
-        a: Math.random() * 0.45 + 0.12,
-        p: Math.random() * Math.PI * 2,
-        s: Math.random() * 0.9 + 0.35
-      });
-    }
-  }
-  window.addEventListener('resize', resize);
-
-  // ---------------------------------------------------------------- geometry
-  // ECI -> screen. Globe spins with true GMST, so the plot stays physical.
-  var cg = 1, sg = 0, ct = Math.cos(TILT), st = Math.sin(TILT);
-
-  // returns [sx, sy, depth] ; depth > 0 == nearer the viewer (+Y is toward camera)
-  function project(x, y, z, out) {
-    var x1 =  x * cg + y * sg;
-    var y1 = -x * sg + y * cg;
-    var y2 = y1 * ct - z * st;
-    var z2 = y1 * st + z * ct;
-    out[0] = CX + x1 * R;
-    out[1] = CY - z2 * R;
-    out[2] = y2;
-    return out;
+  // ── Math helpers ──────────────────────────────────────────
+  function rotatePoint(x, y, z, ry, rx) {
+    // Rotate around Y then X (tilt)
+    const cosY = Math.cos(ry), sinY = Math.sin(ry);
+    let x1 = x * cosY - z * sinY;
+    let z1 = x * sinY + z * cosY;
+    let y1 = y;
+    const cosX = Math.cos(rx), sinX = Math.sin(rx);
+    const y2 = y1 * cosX - z1 * sinX;
+    const z2 = y1 * sinX + z1 * cosX;
+    return { x: x1, y: y2, z: z2 };
   }
 
-  // Approximate solar direction in ECI (unit) — drives the terminator shading.
-  function sunECI(date) {
-    var jd = date.getTime() / 86400000 + 2440587.5;
-    var n  = jd - 2451545.0;
-    var L  = (280.460 + 0.9856474 * n) * Math.PI / 180;
-    var g  = (357.528 + 0.9856003 * n) * Math.PI / 180;
-    var lam = L + (1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * Math.PI / 180;
-    var eps = 23.439 * Math.PI / 180;
-    return [Math.cos(lam), Math.cos(eps) * Math.sin(lam), Math.sin(eps) * Math.sin(lam)];
+  function project(x, y, z) {
+    // Orthographic: +z toward camera after rotation
+    return {
+      sx: cx + x * globeR,
+      sy: cy - y * globeR,
+      depth: z, // >0 in front of center
+    };
   }
 
-  // graticule: lat/lon lines as ECF unit points, rotated into ECI by GMST
-  var GRAT = (function () {
-    var lines = [], i, j, pts, lat, lon, cl;
-    for (i = -60; i <= 60; i += 30) {            // parallels
-      lat = i * Math.PI / 180; pts = []; cl = Math.cos(lat);
-      for (j = 0; j <= 96; j++) {
-        lon = j / 96 * Math.PI * 2;
-        pts.push(cl * Math.cos(lon), cl * Math.sin(lon), Math.sin(lat));
-      }
-      lines.push(pts);
-    }
-    for (i = 0; i < 12; i++) {                   // meridians
-      lon = i / 12 * Math.PI * 2; pts = [];
-      for (j = 0; j <= 64; j++) {
-        lat = -Math.PI / 2 + j / 64 * Math.PI; cl = Math.cos(lat);
-        pts.push(cl * Math.cos(lon), cl * Math.sin(lon), Math.sin(lat));
-      }
-      lines.push(pts);
-    }
-    return lines;
-  })();
+  function dateFromMs(ms) {
+    return new Date(ms);
+  }
 
-  // ---------------------------------------------------------------- draw
-  var t0 = Date.now();
-  var pv = [0, 0, 0], sv = [0, 0, 0];
-
-  function frame() {
-    var wall = Date.now();
-    var simMs = t0 + (wall - t0) * TIME_SCALE;
-    var now   = new Date(simMs);
-
-    var gmst = satellite.gstime(now);
-    cg = Math.cos(gmst); sg = Math.sin(gmst);
-
-    // ---- space
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = '#02040a';
+  // ── Earth drawing ─────────────────────────────────────────
+  function drawBackground(t) {
+    // Deep space gradient
+    const g = ctx.createRadialGradient(cx, cy, globeR * 0.2, cx, cy, Math.max(W, H) * 0.75);
+    g.addColorStop(0, "#071018");
+    g.addColorStop(0.45, "#04080f");
+    g.addColorStop(1, "#010205");
+    ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, H);
 
-    // ---- starfield
-    var ts = wall / 1000;
-    for (var i = 0; i < stars.length; i++) {
-      var s = stars[i];
-      ctx.globalAlpha = s.a * (0.72 + 0.28 * Math.sin(ts * s.s + s.p));
-      ctx.fillStyle = '#dceeff';
-      ctx.fillRect(s.x, s.y, s.r, s.r);
-    }
-    ctx.globalAlpha = 1;
-
-    // ---- atmospheric glow rim (additive, sits outside the limb)
-    ctx.globalCompositeOperation = 'lighter';
-    var glow = ctx.createRadialGradient(CX, CY, R * 0.92, CX, CY, R * 1.30);
-    glow.addColorStop(0.00, 'rgba(28,110,190,0.00)');
-    glow.addColorStop(0.13, 'rgba(46,150,235,0.34)');
-    glow.addColorStop(0.34, 'rgba(30,116,205,0.15)');
-    glow.addColorStop(1.00, 'rgba(10,40,90,0)');
-    ctx.fillStyle = glow;
-    ctx.beginPath();
-    ctx.arc(CX, CY, R * 1.30, 0, Math.PI * 2);
-    ctx.fill();
-
-    // ---- globe body, lit from the true sun direction
-    ctx.globalCompositeOperation = 'source-over';
-    var sun = sunECI(now);
-    project(sun[0], sun[1], sun[2], sv);
-    var lx = (sv[0] - CX) / R, ly = (sv[1] - CY) / R;
-    var lm = Math.sqrt(lx * lx + ly * ly) || 1;
-    if (lm > 1) { lx /= lm; ly /= lm; }
-
-    var body = ctx.createRadialGradient(
-      CX + lx * R * 0.55, CY + ly * R * 0.55, R * 0.04,
-      CX, CY, R * 1.02
-    );
-    body.addColorStop(0.00, '#0f2740');
-    body.addColorStop(0.35, '#081827');
-    body.addColorStop(0.72, '#040d18');
-    body.addColorStop(1.00, '#01050b');
-    ctx.fillStyle = body;
-    ctx.beginPath();
-    ctx.arc(CX, CY, R, 0, Math.PI * 2);
-    ctx.fill();
-
-    // ---- graticule (front hemisphere only)
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = 'rgba(86,178,240,0.16)';
-    for (var g = 0; g < GRAT.length; g++) {
-      var pts = GRAT[g], pen = false;
+    // Starfield
+    for (let i = 0; i < STARS.length; i++) {
+      const s = STARS[i];
+      const twinkle = 0.7 + 0.3 * Math.sin(t * 0.0012 + s.tw);
       ctx.beginPath();
-      for (var k = 0; k < pts.length; k += 3) {
-        project(pts[k], pts[k + 1], pts[k + 2], pv);
-        if (pv[2] >= 0) {
-          if (pen) ctx.lineTo(pv[0], pv[1]);
-          else { ctx.moveTo(pv[0], pv[1]); pen = true; }
-        } else pen = false;
+      ctx.fillStyle = `rgba(210, 230, 255, ${s.a * twinkle})`;
+      ctx.arc(s.x * W, s.y * H, s.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawAtmosphere() {
+    // Soft outer glow
+    const outer = ctx.createRadialGradient(cx, cy, globeR * 0.88, cx, cy, globeR * 1.28);
+    outer.addColorStop(0, "rgba(40, 140, 255, 0.0)");
+    outer.addColorStop(0.45, "rgba(50, 160, 255, 0.07)");
+    outer.addColorStop(0.75, "rgba(80, 190, 255, 0.14)");
+    outer.addColorStop(1, "rgba(40, 140, 255, 0)");
+    ctx.fillStyle = outer;
+    ctx.beginPath();
+    ctx.arc(cx, cy, globeR * 1.28, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Thin bright rim
+    const rim = ctx.createRadialGradient(cx, cy, globeR * 0.92, cx, cy, globeR * 1.06);
+    rim.addColorStop(0, "rgba(100, 200, 255, 0)");
+    rim.addColorStop(0.55, "rgba(90, 190, 255, 0.08)");
+    rim.addColorStop(0.85, "rgba(140, 220, 255, 0.35)");
+    rim.addColorStop(1, "rgba(180, 230, 255, 0)");
+    ctx.fillStyle = rim;
+    ctx.beginPath();
+    ctx.arc(cx, cy, globeR * 1.06, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawEarth(ry) {
+    // Disc body
+    const body = ctx.createRadialGradient(
+      cx - globeR * 0.35,
+      cy - globeR * 0.4,
+      globeR * 0.08,
+      cx,
+      cy,
+      globeR
+    );
+    body.addColorStop(0, "#1a3a5c");
+    body.addColorStop(0.35, "#0c2240");
+    body.addColorStop(0.7, "#061428");
+    body.addColorStop(1, "#020810");
+    ctx.beginPath();
+    ctx.arc(cx, cy, globeR, 0, Math.PI * 2);
+    ctx.fillStyle = body;
+    ctx.fill();
+
+    // Soft terminator / limb darkening
+    const shade = ctx.createLinearGradient(cx - globeR, cy, cx + globeR, cy);
+    const phase = ((ry % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    // subtle lighting shift with rotation
+    shade.addColorStop(0, "rgba(0,0,0,0.55)");
+    shade.addColorStop(0.4, "rgba(0,0,0,0.15)");
+    shade.addColorStop(0.65, "rgba(20,60,100,0.05)");
+    shade.addColorStop(1, "rgba(0,0,0,0.45)");
+    ctx.beginPath();
+    ctx.arc(cx, cy, globeR, 0, Math.PI * 2);
+    ctx.fillStyle = shade;
+    ctx.fill();
+
+    // Stylized latitude lines
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, globeR, 0, Math.PI * 2);
+    ctx.clip();
+
+    ctx.strokeStyle = "rgba(80, 160, 220, 0.09)";
+    ctx.lineWidth = 1;
+
+    // Latitude bands (ellipses after tilt)
+    for (let lat = -60; lat <= 60; lat += 30) {
+      const y = Math.sin((lat * Math.PI) / 180);
+      const r = Math.cos((lat * Math.PI) / 180);
+      // After tilt, approximate ellipse
+      const pts = 64;
+      ctx.beginPath();
+      for (let i = 0; i <= pts; i++) {
+        const lon = (i / pts) * Math.PI * 2 + ry;
+        const x0 = Math.cos(lon) * r;
+        const z0 = Math.sin(lon) * r;
+        const p = rotatePoint(x0, y, z0, 0, TILT);
+        // only draw front-ish for subtlety, but full ellipse is fine clipped
+        const pr = project(p.x, p.y, p.z);
+        if (i === 0) ctx.moveTo(pr.sx, pr.sy);
+        else ctx.lineTo(pr.sx, pr.sy);
       }
       ctx.stroke();
     }
 
-    // ---- crisp limb
-    ctx.strokeStyle = 'rgba(120,205,255,0.30)';
-    ctx.lineWidth = 1.2;
-    ctx.beginPath();
-    ctx.arc(CX, CY, R, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // ---- satellites: fade the layer, then stamp this frame's positions
-    lctx.globalCompositeOperation = 'destination-out';
-    lctx.globalAlpha = 1;
-    lctx.fillStyle = 'rgba(0,0,0,' + TRAIL_FADE + ')';
-    lctx.fillRect(0, 0, W, H);
-    lctx.globalCompositeOperation = 'lighter';
-
-    for (var n = 0; n < recs.length; n++) {
-      var e = recs[n], pos;
-      try { pos = satellite.propagate(e.rec, now); }
-      catch (err) { pos = null; }
-      if (!pos || !pos.position) continue;
-
-      var p = pos.position;
-      var x = p.x / EARTH_R_KM, y = p.y / EARTH_R_KM, z = p.z / EARTH_R_KM;
-      if (!isFinite(x) || !isFinite(y) || !isFinite(z)) continue;
-
-      project(x, y, z, pv);
-      var sx = pv[0], sy = pv[1], d = pv[2];
-
-      // occlusion: behind the centre plane AND inside the disc == hidden
-      var rx = (sx - CX) / R, ry = (sy - CY) / R;
-      if (d < 0 && rx * rx + ry * ry < 1) continue;
-
-      // depth shading: front hemisphere brighter and slightly larger
-      var dn = (d + 1.1) / 2.2;                 // 0..1
-      if (dn < 0) dn = 0; else if (dn > 1) dn = 1;
-      var a  = 0.28 + 0.72 * dn * dn;
-      var sz = 4.0 + 5.6 * dn;
-
-      lctx.globalAlpha = a;
-      lctx.drawImage(sprite, sx - sz / 2, sy - sz / 2, sz, sz);
+    // Longitude meridians
+    ctx.strokeStyle = "rgba(70, 150, 210, 0.07)";
+    for (let lon0 = 0; lon0 < 360; lon0 += 30) {
+      const lonBase = (lon0 * Math.PI) / 180 + ry;
+      ctx.beginPath();
+      let started = false;
+      for (let lat = -90; lat <= 90; lat += 4) {
+        const la = (lat * Math.PI) / 180;
+        const x0 = Math.cos(lonBase) * Math.cos(la);
+        const y0 = Math.sin(la);
+        const z0 = Math.sin(lonBase) * Math.cos(la);
+        const p = rotatePoint(x0, y0, z0, 0, TILT);
+        const pr = project(p.x, p.y, p.z);
+        if (p.z < -0.05) {
+          started = false;
+          continue;
+        }
+        if (!started) {
+          ctx.moveTo(pr.sx, pr.sy);
+          started = true;
+        } else {
+          ctx.lineTo(pr.sx, pr.sy);
+        }
+      }
+      ctx.stroke();
     }
 
-    // ---- composite the swarm over the globe
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.globalAlpha = 1;
-    ctx.drawImage(layer, 0, 0, W, H);
+    // Faint continent-like noise blobs (abstract, not real geography)
+    ctx.globalCompositeOperation = "lighter";
+    for (let i = 0; i < 18; i++) {
+      const lon = ((i * 47.3) % 360) * Math.PI / 180 + ry * 0.15;
+      const lat = (((i * 31.7) % 140) - 70) * Math.PI / 180;
+      const x0 = Math.cos(lon) * Math.cos(lat);
+      const y0 = Math.sin(lat);
+      const z0 = Math.sin(lon) * Math.cos(lat);
+      const p = rotatePoint(x0, y0, z0, 0, TILT);
+      if (p.z < 0.15) continue;
+      const pr = project(p.x, p.y, p.z);
+      const alpha = 0.04 + 0.06 * p.z;
+      const rg = ctx.createRadialGradient(pr.sx, pr.sy, 0, pr.sx, pr.sy, globeR * (0.12 + (i % 5) * 0.03));
+      rg.addColorStop(0, `rgba(60, 160, 120, ${alpha})`);
+      rg.addColorStop(1, "rgba(40, 100, 80, 0)");
+      ctx.fillStyle = rg;
+      ctx.beginPath();
+      ctx.arc(pr.sx, pr.sy, globeR * (0.12 + (i % 5) * 0.03), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalCompositeOperation = "source-over";
 
-    ctx.globalCompositeOperation = 'source-over';
+    ctx.restore();
+
+    // Crisp limb edge
+    ctx.beginPath();
+    ctx.arc(cx, cy, globeR, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(100, 190, 255, 0.22)";
+    ctx.lineWidth = 1.25;
+    ctx.stroke();
+  }
+
+  // ── Satellites ────────────────────────────────────────────
+  function computePositions(date) {
+    screenSats = [];
+    const out = [];
+    for (let i = 0; i < sats.length; i++) {
+      const sat = sats[i];
+      let pv;
+      try {
+        pv = satellite.propagate(sat.satrec, date);
+      } catch (_) {
+        continue;
+      }
+      if (!pv || !pv.position || pv.position.x == null) continue;
+      const { x, y, z } = pv.position;
+      if (!isFinite(x) || !isFinite(y) || !isFinite(z)) continue;
+
+      // Normalize by Earth radius → unit-ish orbital coords
+      const nx = x / EARTH_RADIUS_KM;
+      const ny = y / EARTH_RADIUS_KM;
+      const nz = z / EARTH_RADIUS_KM;
+
+      // Apply globe rotation + tilt so sats stay locked to Earth frame visually
+      const p = rotatePoint(nx, ny, nz, rotY, TILT);
+
+      // Occlusion: hide if behind the globe disc
+      // A point is behind Earth if its projected radius < 1 and z < 0 (far side),
+      // more precisely: if z < 0 and x²+y² < 1 - (something)...
+      // Standard: ray from camera (orthographic +z): occluded if z < 0 and
+      // radial distance in xy of the unit sphere intersection would hide it —
+      // for orthographic, satellite is occluded when the unit sphere blocks:
+      // if hypot(p.x, p.y) < 1 and p.z < Math.sqrt(1 - x² - y²) wait:
+      // Earth is unit sphere. Point is occluded if p.z < 0 and p.x²+p.y² < 1
+      // BUT only if it's actually behind the front surface — for points with
+      // radial distance from origin R = |p|, if the line-of-sight hits the sphere.
+      // Orthographic from +z: occluded when p.z < 0 and p.x² + p.y² < 1.
+      const r2xy = p.x * p.x + p.y * p.y;
+      if (p.z < 0 && r2xy < 1) continue; // behind globe
+
+      const pr = project(p.x, p.y, p.z);
+      // Depth for shading: higher z = closer to camera = brighter
+      // Normalize roughly for LEO: z ranges ~-1.1 to 1.1
+      const depth = (p.z + 1.2) / 2.4; // 0..1-ish
+      out.push({
+        i,
+        sx: pr.sx,
+        sy: pr.sy,
+        z: p.z,
+        depth: Math.max(0, Math.min(1, depth)),
+        eci: { x, y, z },
+        vel: pv.velocity,
+      });
+    }
+    // Painter's algorithm: far first
+    out.sort((a, b) => a.z - b.z);
+    screenSats = out;
+    return out;
+  }
+
+  function drawSats(list, highlightIdx) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+
+    for (let k = 0; k < list.length; k++) {
+      const s = list[k];
+      const d = s.depth;
+      const isHi = s.i === highlightIdx;
+
+      // Size & brightness by depth
+      const r = isHi ? 3.2 : 0.9 + d * 1.4;
+      const a = isHi ? 1 : 0.25 + d * 0.75;
+      const core = isHi ? 1 : 0.55 + d * 0.45;
+
+      // Soft glow
+      const glowR = r * (isHi ? 5 : 3.5);
+      const gg = ctx.createRadialGradient(s.sx, s.sy, 0, s.sx, s.sy, glowR);
+      gg.addColorStop(0, `rgba(180, 245, 255, ${a * 0.55})`);
+      gg.addColorStop(0.35, `rgba(80, 200, 255, ${a * 0.22})`);
+      gg.addColorStop(1, "rgba(40, 140, 255, 0)");
+      ctx.fillStyle = gg;
+      ctx.beginPath();
+      ctx.arc(s.sx, s.sy, glowR, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Core dot
+      ctx.beginPath();
+      ctx.fillStyle = `rgba(230, 250, 255, ${core})`;
+      ctx.arc(s.sx, s.sy, r * 0.55, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.globalCompositeOperation = "source-over";
+
+    // Highlight ring (not additive)
+    if (highlightIdx >= 0) {
+      for (let k = 0; k < list.length; k++) {
+        if (list[k].i !== highlightIdx) continue;
+        const s = list[k];
+        ctx.beginPath();
+        ctx.strokeStyle = "rgba(160, 240, 255, 0.95)";
+        ctx.lineWidth = 1.5;
+        ctx.arc(s.sx, s.sy, 8, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.strokeStyle = "rgba(100, 200, 255, 0.35)";
+        ctx.lineWidth = 1;
+        ctx.arc(s.sx, s.sy, 12, 0, Math.PI * 2);
+        ctx.stroke();
+        break;
+      }
+    }
+
+    ctx.restore();
+  }
+
+  // ── Tooltip / details ─────────────────────────────────────
+  function findHover() {
+    if (!frozen || !mouseIn) return -1;
+    const hitR2 = HIT_RADIUS_PX * HIT_RADIUS_PX;
+    let best = -1;
+    let bestD = hitR2;
+    let bestZ = -Infinity;
+    for (let k = 0; k < screenSats.length; k++) {
+      const s = screenSats[k];
+      const dx = s.sx - mouseX;
+      const dy = s.sy - mouseY;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > hitR2) continue;
+      // Prefer front-most satellite within hit radius; break ties by closeness
+      if (s.z > bestZ || (s.z === bestZ && d2 < bestD)) {
+        best = s.i;
+        bestD = d2;
+        bestZ = s.z;
+      }
+    }
+    return best;
+  }
+
+  function formatTooltip(sat, screenEntry, date) {
+    const rec = sat.satrec;
+    const name = sat.name || "UNKNOWN";
+    const norad = rec.satnum != null ? String(rec.satnum) : "—";
+
+    let alt = "—", speed = "—", lat = "—", lon = "—";
+    try {
+      const pos = screenEntry.eci;
+      const vel = screenEntry.vel;
+      if (pos && isFinite(pos.x)) {
+        const r = Math.sqrt(pos.x * pos.x + pos.y * pos.y + pos.z * pos.z);
+        alt = (r - EARTH_RADIUS_KM).toFixed(1);
+      }
+      if (vel && isFinite(vel.x)) {
+        const v = Math.sqrt(vel.x * vel.x + vel.y * vel.y + vel.z * vel.z);
+        speed = v.toFixed(3);
+      }
+      if (pos && isFinite(pos.x)) {
+        const gmst = satellite.gstime(date);
+        const gd = satellite.eciToGeodetic(pos, gmst);
+        lat = satellite.degreesLat(gd.latitude).toFixed(3) + "°";
+        lon = satellite.degreesLong(gd.longitude).toFixed(3) + "°";
+        if (isFinite(gd.height)) alt = gd.height.toFixed(1);
+      }
+    } catch (_) { /* keep dashes */ }
+
+    return (
+      `<div class="name">${escapeHtml(name)}</div>` +
+      `<div class="row"><span class="label">NORAD</span><span class="val">${escapeHtml(norad)}</span></div>` +
+      `<div class="row"><span class="label">Altitude</span><span class="val">${alt} km</span></div>` +
+      `<div class="row"><span class="label">Speed</span><span class="val">${speed} km/s</span></div>` +
+      `<div class="row"><span class="label">Latitude</span><span class="val">${lat}</span></div>` +
+      `<div class="row"><span class="label">Longitude</span><span class="val">${lon}</span></div>`
+    );
+  }
+
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function placeTooltip(html) {
+    tooltip.innerHTML = html;
+    tooltip.classList.add("visible");
+    // Keep on screen
+    const pad = 12;
+    let x = mouseX + 14;
+    let y = mouseY + 14;
+    // measure after paint
+    const tw = tooltip.offsetWidth || 220;
+    const th = tooltip.offsetHeight || 140;
+    if (x + tw + pad > W) x = mouseX - tw - 14;
+    if (y + th + pad > H) y = mouseY - th - 14;
+    if (x < pad) x = pad;
+    if (y < pad) y = pad;
+    tooltip.style.left = x + "px";
+    tooltip.style.top = y + "px";
+  }
+
+  function hideTooltip() {
+    tooltip.classList.remove("visible");
+  }
+
+  // ── Main loop ─────────────────────────────────────────────
+  function frame(now) {
+    const dt = Math.min(0.05, (now - lastFrame) / 1000);
+    lastFrame = now;
+
+    if (!frozen) {
+      simTime += dt * TIME_SCALE * 1000;
+      rotY += ROTATE_SPEED * dt;
+    }
+
+    const date = dateFromMs(simTime);
+
+    drawBackground(now);
+    drawAtmosphere();
+    drawEarth(rotY);
+
+    const list = computePositions(date);
+
+    let hi = -1;
+    if (frozen && mouseIn) {
+      hi = findHover();
+    }
+
+    drawSats(list, hi);
+
+    // Soft vignette
+    const vig = ctx.createRadialGradient(cx, cy, globeR * 0.9, cx, cy, Math.max(W, H) * 0.72);
+    vig.addColorStop(0, "rgba(0,0,0,0)");
+    vig.addColorStop(1, "rgba(0,0,0,0.45)");
+    ctx.fillStyle = vig;
+    ctx.fillRect(0, 0, W, H);
+
+    // Tooltip
+    if (hi >= 0) {
+      const entry = list.find((s) => s.i === hi);
+      placeTooltip(formatTooltip(sats[hi], entry, date));
+    } else {
+      hideTooltip();
+    }
+
     requestAnimationFrame(frame);
   }
 
+  // ── Interaction ───────────────────────────────────────────
+  function onPointerMove(e) {
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+    if (!mouseIn) {
+      mouseIn = true;
+    }
+    // Freeze as soon as mouse is anywhere over the visualization
+    if (!frozen) {
+      frozen = true;
+      hudSub.innerHTML = '<span class="frozen">frozen · hover a satellite</span>';
+    }
+  }
+
+  function onPointerLeave() {
+    mouseIn = false;
+    frozen = false;
+    mouseX = -1e9;
+    mouseY = -1e9;
+    hideTooltip();
+    hudSub.textContent = "live orbital positions · SGP4";
+  }
+
+  // Track window leave/enter robustly
+  window.addEventListener("mousemove", onPointerMove, { passive: true });
+  window.addEventListener("pointermove", onPointerMove, { passive: true });
+  document.addEventListener("mouseleave", onPointerLeave);
+  window.addEventListener("blur", onPointerLeave);
+  // Also when pointer leaves the document element
+  document.documentElement.addEventListener("mouseleave", onPointerLeave);
+
+  window.addEventListener("resize", resize);
+
+  // Boot
+  seedStars();
+  initSats();
   resize();
+  hudSub.textContent = sats.length.toLocaleString() + " satellites · SGP4";
   requestAnimationFrame(frame);
 })();
-</script>
+  </script>
 </body>
 </html>
