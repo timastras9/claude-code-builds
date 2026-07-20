@@ -1,4 +1,4 @@
-# Claude Code Built a BMI Calculator By Itself (No Hands)
+# BMI Calculator
 
 Built live and autonomously by **Claude Code** on the YouTube channel.
 
