@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Starlink — Live Constellation</title>
+<style>
+  :root{
+    --cyan:#7fe9ff;
+    --ink:#04070d;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%;overflow:hidden;background:#04070d}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Arial,sans-serif;
+    color:#cfe6f2;
+    -webkit-font-smoothing:antialiased;
+    cursor:crosshair;
+  }
+  #stage{position:fixed;inset:0;display:block}
+
+  /* ---- chrome ---- */
+  .hud{position:fixed;pointer-events:none;user-select:none;z-index:5}
+  #brand{top:34px;left:38px}
+  #brand h1{
+    font-size:13px;font-weight:600;letter-spacing:.42em;text-transform:uppercase;
+    color:#eaf7ff;text-shadow:0 0 18px rgba(120,225,255,.45);
+  }
+  #brand .sub{
+    margin-top:9px;font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;
+    color:rgba(160,200,220,.5);
+  }
+  #brand .sub b{color:var(--cyan);font-weight:600}
+  #hint{
+    bottom:32px;left:38px;font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;
+    color:rgba(150,190,212,.35);transition:color .5s ease;
+  }
+  #hint.frozen{color:rgba(127,233,255,.8)}
+  #hint .dot{
+    display:inline-block;width:5px;height:5px;border-radius:50%;
+    background:rgba(150,190,212,.35);margin-right:9px;vertical-align:2px;
+    transition:all .35s ease;
+  }
+  #hint.frozen .dot{background:var(--cyan);box-shadow:0 0 10px var(--cyan)}
+
+  /* ---- tooltip ---- */
+  #tip{
+    position:fixed;z-index:20;pointer-events:none;
+    min-width:238px;padding:14px 16px 13px;
+    background:
+      linear-gradient(160deg,rgba(11,22,35,.92),rgba(5,10,17,.94)),
+      rgba(3,7,12,.99);
+    border:1px solid rgba(127,233,255,.28);
+    border-radius:11px;
+    box-shadow:0 20px 60px -12px rgba(0,0,0,.9),0 0 0 1px rgba(0,0,0,.4),inset 0 1px 0 rgba(180,240,255,.09);
+    backdrop-filter:blur(14px) saturate(1.4);
+    -webkit-backdrop-filter:blur(14px) saturate(1.4);
+    opacity:0;transform:translateY(4px) scale(.985);
+    transition:opacity .13s ease,transform .13s ease;
+  }
+  #tip.on{opacity:1;transform:none}
+  #tip .name{
+    font-size:12.5px;font-weight:600;letter-spacing:.13em;color:#f2fbff;
+    text-transform:uppercase;
+  }
+  #tip .norad{
+    margin-top:3px;font-size:10px;letter-spacing:.16em;color:rgba(127,233,255,.85);
+    font-variant-numeric:tabular-nums;
+  }
+  #tip .rule{height:1px;margin:11px 0 10px;background:linear-gradient(90deg,rgba(127,233,255,.4),rgba(127,233,255,0))}
+  #tip dl{display:grid;grid-template-columns:auto 1fr;gap:5px 16px;font-size:11px}
+  #tip dt{
+    letter-spacing:.13em;text-transform:uppercase;font-size:9.5px;
+    color:rgba(150,190,212,.55);white-space:nowrap;align-self:center;
+  }
+  #tip dd{
+    text-align:right;color:#dff2fb;font-variant-numeric:tabular-nums;
+    letter-spacing:.02em;
+  }
+  #tip dd b{color:var(--cyan);font-weight:600}
+  #tip .stat-ok{color:#8ef2c0}
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+
+<div class="hud" id="brand">
+  <h1>Starlink</h1>
+  <div class="sub"><b id="count">0</b> satellites &middot; live SGP4 propagation</div>
+</div>
+<div class="hud" id="hint"><span class="dot"></span><span id="hintText">Move cursor to freeze &amp; inspect</span></div>
+
+<div id="tip">
+  <div class="name" id="tName">—</div>
+  <div class="norad" id="tNorad">NORAD —</div>
+  <div class="rule"></div>
+  <dl>
+    <dt>Altitude</dt>  <dd><b id="tAlt">—</b></dd>
+    <dt>Speed</dt>     <dd><b id="tSpd">—</b></dd>
+    <dt>Latitude</dt>  <dd id="tLat">—</dd>
+    <dt>Longitude</dt> <dd id="tLon">—</dd>
+    <dt>Launched</dt>  <dd id="tLaunch">—</dd>
+    <dt>Site</dt>      <dd id="tSite">—</dd>
+    <dt>Status</dt>    <dd id="tStat">—</dd>
+  </dl>
+</div>
+
+<script src="satellite.min.js"></script>
+<script src="starlink-data.js"></script>
+<script>
+(function(){
+'use strict';
+
+// ─────────────────────────────────────────────────────────── constants
+var EARTH_R   = 6371;      // km
+var TIME_MULT = 55;        // orbital time-lapse
+var SPIN      = 0.010;     // globe auto-rotation, rad/s (scene time)
+var TILT      = 0.36;      // camera tilt, rad
+var SNAP_MS   = 60000;     // sim-ms between SGP4 snapshots (interpolated between)
+var CHUNK     = 90;        // sats propagated per frame while pre-building next snapshot
+var PICK_PX   = 11;        // hover pick radius
+
+// ─────────────────────────────────────────────────────────── satellites
+var RAW = window.SAT || [];
+var sats = [], N = 0;
+for (var i=0;i<RAW.length;i++){
+  var r = RAW[i], rec;
+  try { rec = satellite.twoline2satrec(r[1], r[2]); } catch(e){ continue; }
+  if (!rec || rec.error) continue;
+  sats.push({ name:r[0], rec:rec, launch:r[3], status:r[4], site:r[5] });
+}
+N = sats.length;
+document.getElementById('count').textContent = N.toLocaleString();
+
+// three position buffers (unit = Earth radii, ECEF), round-robin
+function mkBuf(){ return new Float32Array(N*3); }
+var bufA = mkBuf(), bufB = mkBuf(), bufC = mkBuf();
+var tA = 0, tB = 0;                 // sim epoch (ms) of bufA / bufB
+var build = null;                   // {t, buf, i} snapshot being filled incrementally
+
+function fill(buf, from, to, simMs){
+  var d = new Date(simMs), g = satellite.gstime(d);
+  var cg = Math.cos(g), sg = Math.sin(g);
+  for (var k=from; k<to; k++){
+    var o = k*3, p;
+    try { p = satellite.propagate(sats[k].rec, d); } catch(e){ p = null; }
+    if (!p || !p.position || !isFinite(p.position.x)){ buf[o]=NaN; continue; }
+    var x=p.position.x, y=p.position.y, z=p.position.z;
+    // ECI -> ECEF (rotate by Greenwich mean sidereal time), then normalise to Earth radii
+    buf[o]   = ( x*cg + y*sg)/EARTH_R;
+    buf[o+1] = (-x*sg + y*cg)/EARTH_R;
+    buf[o+2] =  z/EARTH_R;
+  }
+}
+
+var simT = Date.now();
+tA = simT;              fill(bufA, 0, N, tA);
+tB = tA + SNAP_MS;      fill(bufB, 0, N, tB);
+build = { t: tB + SNAP_MS, buf: bufC, i: 0 };
+
+function advanceSnapshots(){
+  if (simT >= tB){
+    if (build && build.i < N) fill(build.buf, build.i, N, build.t);   // finish late arrival
+    var old = bufA;
+    bufA = bufB; tA = tB;
+    bufB = build.buf; tB = build.t;
+    build = { t: tB + SNAP_MS, buf: old, i: 0 };
+  }
+  if (build && build.i < N){
+    var to = Math.min(N, build.i + CHUNK);
+    fill(build.buf, build.i, to, build.t);
+    build.i = to;
+  }
+}
+
+// ─────────────────────────────────────────────────────────── canvas
+var cv = document.getElementById('stage'), ctx = cv.getContext('2d');
+var W=0, H=0, CX=0, CY=0, R=0, DPR=1;
+var stars = document.createElement('canvas');
+
+function buildStars(){
+  stars.width = cv.width; stars.height = cv.height;
+  var s = stars.getContext('2d');
+  s.setTransform(DPR,0,0,DPR,0,0);
+  s.clearRect(0,0,W,H);
+  // deterministic-ish scatter
+  var n = Math.round(W*H/2600), seed = 12345;
+  function rnd(){ seed = (seed*1664525 + 1013904223) & 0x7fffffff; return seed/0x7fffffff; }
+  for (var i=0;i<n;i++){
+    var x = rnd()*W, y = rnd()*H, m = rnd();
+    var rad = m>0.985 ? 1.5 : (m>0.9 ? 1.0 : 0.65);
+    var a   = 0.06 + m*0.42;
+    s.beginPath(); s.arc(x,y,rad,0,6.2832);
+    s.fillStyle = 'rgba(' + (200+Math.round(rnd()*55)) + ',225,255,' + a.toFixed(3) + ')';
+    s.fill();
+    if (m>0.99){ // a few with bloom
+      var gl = s.createRadialGradient(x,y,0,x,y,7);
+      gl.addColorStop(0,'rgba(190,235,255,.30)'); gl.addColorStop(1,'rgba(190,235,255,0)');
+      s.fillStyle = gl; s.beginPath(); s.arc(x,y,7,0,6.2832); s.fill();
+    }
+  }
+}
+
+// glowing satellite sprite (drawn additively)
+var SP = 22, sprite = document.createElement('canvas');
+(function(){
+  sprite.width = sprite.height = SP*2;
+  var c = sprite.getContext('2d'), g = c.createRadialGradient(SP,SP,0,SP,SP,SP);
+  g.addColorStop(0.00,'rgba(255,255,255,1)');
+  g.addColorStop(0.12,'rgba(232,252,255,.95)');
+  g.addColorStop(0.28,'rgba(128,232,255,.55)');
+  g.addColorStop(0.55,'rgba(70,180,255,.16)');
+  g.addColorStop(1.00,'rgba(40,140,255,0)');
+  c.fillStyle = g; c.fillRect(0,0,SP*2,SP*2);
+})();
+
+function resize(){
+  DPR = Math.min(window.devicePixelRatio||1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  cv.width = Math.round(W*DPR); cv.height = Math.round(H*DPR);
+  cv.style.width = W+'px'; cv.style.height = H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  CX = W/2; CY = H/2;
+  R  = Math.min(W,H) * 0.295;
+  buildStars();
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ─────────────────────────────────────────────────────────── interaction
+var frozen = false, mx = -1, my = -1, speed = 1, hover = -1;
+var tip = document.getElementById('tip'), hintEl = document.getElementById('hint');
+var hintText = document.getElementById('hintText');
+
+cv.addEventListener('mousemove', function(e){
+  mx = e.clientX; my = e.clientY;
+  if (!frozen){
+    frozen = true; speed = 0;            // instant, absolute freeze
+    hintEl.classList.add('frozen');
+    hintText.textContent = 'Frozen — hover a satellite';
+  }
+});
+function thaw(){
+  if (!frozen) return;
+  frozen = false; hover = -1; mx = my = -1;
+  tip.classList.remove('on');
+  hintEl.classList.remove('frozen');
+  hintText.textContent = 'Move cursor to freeze & inspect';
+}
+cv.addEventListener('mouseleave', thaw);
+window.addEventListener('blur', thaw);
+document.addEventListener('mouseleave', thaw);
+
+// ─────────────────────────────────────────────────────────── projection
+var yaw = 0;
+var sx = new Float32Array(N), sy = new Float32Array(N);
+var vis = new Uint8Array(N);
+
+function project(x,y,z,out){
+  var ca=Math.cos(yaw), sa=Math.sin(yaw);
+  var x1 =  x*ca - y*sa, y1 = x*sa + y*ca, z1 = z;
+  var ct=Math.cos(TILT), st=Math.sin(TILT);
+  var y2 = y1*ct - z1*st, z2 = y1*st + z1*ct;
+  out[0] = CX + x1*R;
+  out[1] = CY - z2*R;
+  out[2] = -y2;             // depth: >0 toward viewer
+  return out;
+}
+var _p = [0,0,0];
+
+// ─────────────────────────────────────────────────────────── globe
+function drawGlobe(){
+  // outer atmospheric bloom
+  var bloom = ctx.createRadialGradient(CX,CY,R*0.97,CX,CY,R*1.42);
+  bloom.addColorStop(0,   'rgba(70,175,255,.30)');
+  bloom.addColorStop(0.18,'rgba(56,150,240,.15)');
+  bloom.addColorStop(0.55,'rgba(38,110,210,.045)');
+  bloom.addColorStop(1,   'rgba(30,90,190,0)');
+  ctx.fillStyle = bloom;
+  ctx.beginPath(); ctx.arc(CX,CY,R*1.42,0,6.2832); ctx.fill();
+
+  // body — lit from upper-left
+  var lx = CX - R*0.34, ly = CY - R*0.36;
+  var body = ctx.createRadialGradient(lx,ly,R*0.05, CX,CY,R*1.04);
+  body.addColorStop(0,   '#123049');
+  body.addColorStop(0.35,'#0c2137');
+  body.addColorStop(0.68,'#071426');
+  body.addColorStop(1,   '#03080f');
+  ctx.fillStyle = body;
+  ctx.beginPath(); ctx.arc(CX,CY,R,0,6.2832); ctx.fill();
+
+  // graticule, front hemisphere only
+  ctx.save();
+  ctx.beginPath(); ctx.arc(CX,CY,R,0,6.2832); ctx.clip();
+  ctx.lineWidth = 1;
+  var la, lo, first, d, p;
+  for (la=-60; la<=60; la+=30){                       // parallels
+    var pr = Math.cos(la*Math.PI/180), pz = Math.sin(la*Math.PI/180);
+    ctx.beginPath(); first = true;
+    for (lo=0; lo<=360; lo+=4){
+      var t = lo*Math.PI/180;
+      p = project(pr*Math.cos(t), pr*Math.sin(t), pz, _p);
+      if (p[2] > 0){ if(first){ctx.moveTo(p[0],p[1]); first=false;} else ctx.lineTo(p[0],p[1]); }
+      else first = true;
+    }
+    ctx.strokeStyle = (la===0) ? 'rgba(120,205,255,.16)' : 'rgba(105,180,235,.075)';
+    ctx.stroke();
+  }
+  for (lo=0; lo<360; lo+=30){                          // meridians
+    var m = lo*Math.PI/180;
+    ctx.beginPath(); first = true;
+    for (la=-90; la<=90; la+=3){
+      var b = la*Math.PI/180, cb = Math.cos(b);
+      p = project(cb*Math.cos(m), cb*Math.sin(m), Math.sin(b), _p);
+      if (p[2] > 0){ if(first){ctx.moveTo(p[0],p[1]); first=false;} else ctx.lineTo(p[0],p[1]); }
+      else first = true;
+    }
+    ctx.strokeStyle = 'rgba(105,180,235,.075)';
+    ctx.stroke();
+  }
+  // inner limb shading (keeps the sphere reading as a sphere)
+  var limb = ctx.createRadialGradient(CX,CY,R*0.55,CX,CY,R);
+  limb.addColorStop(0,'rgba(0,0,0,0)');
+  limb.addColorStop(1,'rgba(0,0,0,.55)');
+  ctx.fillStyle = limb;
+  ctx.beginPath(); ctx.arc(CX,CY,R,0,6.2832); ctx.fill();
+  ctx.restore();
+
+  // atmosphere rim
+  ctx.globalCompositeOperation = 'lighter';
+  var rim = ctx.createRadialGradient(CX,CY,R*0.90,CX,CY,R*1.06);
+  rim.addColorStop(0,   'rgba(60,150,240,0)');
+  rim.addColorStop(0.72,'rgba(96,200,255,.20)');
+  rim.addColorStop(0.90,'rgba(150,232,255,.42)');
+  rim.addColorStop(1,   'rgba(120,205,255,0)');
+  ctx.fillStyle = rim;
+  ctx.beginPath(); ctx.arc(CX,CY,R*1.06,0,6.2832); ctx.fill();
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+// ─────────────────────────────────────────────────────────── satellites
+function drawSats(){
+  var f = (simT - tA) / (tB - tA); if (f<0) f=0; else if (f>1) f=1;
+  var best = -1, bestD = PICK_PX*PICK_PX;
+
+  ctx.globalCompositeOperation = 'lighter';
+  for (var k=0;k<N;k++){
+    var o = k*3, ax = bufA[o];
+    if (ax !== ax){ vis[k]=0; continue; }                 // NaN => decayed / SGP4 error
+    var bx = bufB[o];
+    var x = ax + (bx-ax)*f,
+        y = bufA[o+1] + (bufB[o+1]-bufA[o+1])*f,
+        z = bufA[o+2] + (bufB[o+2]-bufA[o+2])*f;
+
+    var p = project(x,y,z,_p), px=p[0], py=p[1], dep=p[2];
+    sx[k]=px; sy[k]=py;
+
+    // occlusion: behind the sphere and inside its silhouette
+    var dx = (px-CX)/R, dy = (py-CY)/R;
+    if (dep <= 0 && dx*dx+dy*dy < 1){ vis[k]=0; continue; }
+    if (px < -30 || px > W+30 || py < -30 || py > H+30){ vis[k]=0; continue; }
+    vis[k]=1;
+
+    var t = (dep + 1.15) / 2.30; if (t<0) t=0; else if (t>1) t=1;   // depth shade
+    var a = 0.22 + t*0.78;
+    var s = (1.35 + t*1.55) * 2.0;                                   // sprite radius px
+
+    ctx.globalAlpha = a;
+    ctx.drawImage(sprite, px-s, py-s, s*2, s*2);
+
+    if (frozen){
+      var qx = px-mx, qy = py-my, q = qx*qx+qy*qy;
+      if (q < bestD){ bestD = q; best = k; }
+    }
+  }
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+
+  if (frozen){
+    if (best !== hover){ hover = best; showTip(); }
+    else if (best >= 0) placeTip();
+    if (best >= 0) drawRing(sx[best], sy[best]);
+  }
+}
+
+function drawRing(x,y){
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.beginPath(); ctx.arc(x,y,13,0,6.2832);
+  ctx.strokeStyle = 'rgba(127,233,255,.85)'; ctx.lineWidth = 1.4; ctx.stroke();
+  ctx.beginPath(); ctx.arc(x,y,20,0,6.2832);
+  ctx.strokeStyle = 'rgba(127,233,255,.22)'; ctx.lineWidth = 1; ctx.stroke();
+  // crosshair ticks
+  ctx.strokeStyle = 'rgba(127,233,255,.5)'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x-24,y); ctx.lineTo(x-16,y); ctx.moveTo(x+16,y); ctx.lineTo(x+24,y);
+  ctx.moveTo(x,y-24); ctx.lineTo(x,y-16); ctx.moveTo(x,y+16); ctx.lineTo(x,y+24);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// ─────────────────────────────────────────────────────────── tooltip
+var el = {
+  name:document.getElementById('tName'), norad:document.getElementById('tNorad'),
+  alt:document.getElementById('tAlt'),   spd:document.getElementById('tSpd'),
+  lat:document.getElementById('tLat'),   lon:document.getElementById('tLon'),
+  launch:document.getElementById('tLaunch'), site:document.getElementById('tSite'),
+  stat:document.getElementById('tStat')
+};
+function fmtDeg(v, pos, neg){
+  return Math.abs(v).toFixed(2) + '° ' + (v>=0 ? pos : neg);
+}
+function showTip(){
+  if (hover < 0){ tip.classList.remove('on'); return; }
+  var s = sats[hover], d = new Date(simT), pv;
+  try { pv = satellite.propagate(s.rec, d); } catch(e){ pv = null; }
+
+  el.name.textContent  = s.name;
+  el.norad.textContent = 'NORAD ' + (s.rec.satnum !== undefined ? s.rec.satnum : '—');
+  el.launch.textContent = s.launch;
+  el.site.textContent   = s.site;
+  el.stat.textContent   = s.status;
+  el.stat.className     = /oper/i.test(s.status) ? 'stat-ok' : '';
+
+  if (pv && pv.position && isFinite(pv.position.x)){
+    var g   = satellite.gstime(d);
+    var geo = satellite.eciToGeodetic(pv.position, g);
+    var v   = pv.velocity;
+    el.alt.textContent = geo.height.toFixed(1) + ' km';
+    el.spd.textContent = Math.sqrt(v.x*v.x + v.y*v.y + v.z*v.z).toFixed(3) + ' km/s';
+    el.lat.textContent = fmtDeg(satellite.degreesLat(geo.latitude), 'N', 'S');
+    el.lon.textContent = fmtDeg(satellite.degreesLong(geo.longitude), 'E', 'W');
+  } else {
+    el.alt.textContent = el.spd.textContent = el.lat.textContent = el.lon.textContent = '—';
+  }
+  tip.classList.add('on');
+  placeTip();
+}
+function placeTip(){
+  var w = tip.offsetWidth || 250, h = tip.offsetHeight || 190;
+  var x = mx + 24, y = my - 16;
+  if (x + w > W - 14) x = mx - w - 24;
+  if (y + h > H - 14) y = H - h - 14;
+  if (y < 14) y = 14;
+  tip.style.left = x + 'px';
+  tip.style.top  = y + 'px';
+}
+
+// ─────────────────────────────────────────────────────────── loop
+var last = performance.now();
+function frame(now){
+  var dt = Math.min((now - last)/1000, 0.1); last = now;
+
+  // instant freeze, eased thaw
+  if (frozen) speed = 0;
+  else if (speed < 1){ speed += (1 - speed) * Math.min(dt*1.6, 1); if (speed > 0.999) speed = 1; }
+
+  if (speed > 0){
+    simT += dt * 1000 * TIME_MULT * speed;
+    yaw  += dt * SPIN * speed;
+    advanceSnapshots();
+  }
+
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle = '#04070d'; ctx.fillRect(0,0,W,H);
+  ctx.drawImage(stars, 0, 0, W, H);
+  drawGlobe();
+  drawSats();
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>
