@@ -1,0 +1,1398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Starlink — Live Constellation & Pass Predictor</title>
+<style>
+  :root {
+    --bg: #05070c;
+    --panel: rgba(10, 14, 24, 0.92);
+    --panel-border: rgba(100, 160, 255, 0.18);
+    --text: #e8eef8;
+    --muted: #8a9bb8;
+    --accent: #4da3ff;
+    --accent-dim: #2a6cb0;
+    --glow: rgba(77, 163, 255, 0.35);
+    --success: #5ddea8;
+    --danger: #ff6b7a;
+    --row-hover: rgba(77, 163, 255, 0.08);
+    --input-bg: rgba(20, 28, 44, 0.9);
+    --radius: 14px;
+    --font: "SF Pro Display", "Segoe UI", system-ui, -apple-system, sans-serif;
+    --mono: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+  }
+
+  #globe {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    cursor: crosshair;
+  }
+
+  #hud-top {
+    position: fixed;
+    top: 18px;
+    left: 22px;
+    z-index: 5;
+    pointer-events: none;
+  }
+
+  #hud-top h1 {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text);
+    text-shadow: 0 0 24px var(--glow);
+  }
+
+  #hud-top .sub {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--muted);
+    font-family: var(--mono);
+  }
+
+  #hud-top .sub span { color: var(--accent); }
+
+  #tooltip {
+    position: fixed;
+    z-index: 20;
+    display: none;
+    pointer-events: none;
+    min-width: 220px;
+    max-width: 300px;
+    padding: 12px 14px;
+    background: rgba(8, 12, 22, 0.94);
+    border: 1px solid rgba(100, 170, 255, 0.35);
+    border-radius: 10px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55), 0 0 30px rgba(60, 140, 255, 0.12);
+    backdrop-filter: blur(12px);
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  #tooltip .name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 8px;
+    letter-spacing: 0.04em;
+  }
+
+  #tooltip .row {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 2px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  }
+
+  #tooltip .row:last-child { border-bottom: none; }
+  #tooltip .k { color: var(--muted); }
+  #tooltip .v { color: var(--text); font-family: var(--mono); font-size: 11px; text-align: right; }
+  #tooltip .status-op { color: var(--success); }
+  #tooltip .status-other { color: #f0c674; }
+
+  #panel {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    bottom: 16px;
+    width: min(400px, calc(100vw - 32px));
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(18px);
+    overflow: hidden;
+  }
+
+  #panel header {
+    padding: 16px 18px 12px;
+    border-bottom: 1px solid rgba(100, 160, 255, 0.12);
+    flex-shrink: 0;
+  }
+
+  #panel header h2 {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  #panel header p {
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .controls {
+    padding: 14px 18px;
+    border-bottom: 1px solid rgba(100, 160, 255, 0.1);
+    flex-shrink: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .field.full { grid-column: 1 / -1; }
+
+  .field label {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .field input, .field select {
+    background: var(--input-bg);
+    border: 1px solid rgba(100, 160, 255, 0.18);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 8px 10px;
+    font-size: 13px;
+    font-family: var(--mono);
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+
+  .field input:focus, .field select:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(77, 163, 255, 0.15);
+  }
+
+  .field select { cursor: pointer; }
+
+  .city-name {
+    grid-column: 1 / -1;
+    font-size: 12px;
+    color: var(--accent);
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .city-name::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--glow);
+  }
+
+  #sky-wrap {
+    flex-shrink: 0;
+    padding: 12px 18px 8px;
+    border-bottom: 1px solid rgba(100, 160, 255, 0.1);
+  }
+
+  #sky-wrap .sky-label {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+
+  #sky {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1;
+    max-height: 220px;
+    margin: 0 auto;
+    background: radial-gradient(circle at center, #0a1220 0%, #05080f 70%);
+    border-radius: 12px;
+    border: 1px solid rgba(100, 160, 255, 0.12);
+  }
+
+  #status-bar {
+    padding: 8px 18px;
+    font-size: 11px;
+    font-family: var(--mono);
+    color: var(--muted);
+    border-bottom: 1px solid rgba(100, 160, 255, 0.08);
+    flex-shrink: 0;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  #status-bar.computing { color: var(--accent); }
+
+  .spinner {
+    width: 12px;
+    height: 12px;
+    border: 2px solid rgba(77, 163, 255, 0.25);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: none;
+  }
+
+  #status-bar.computing .spinner { display: block; }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  #pass-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 10px 14px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(77, 163, 255, 0.3) transparent;
+  }
+
+  #pass-list::-webkit-scrollbar { width: 6px; }
+  #pass-list::-webkit-scrollbar-thumb {
+    background: rgba(77, 163, 255, 0.3);
+    border-radius: 3px;
+  }
+
+  .pass-card {
+    padding: 10px 12px;
+    margin-bottom: 6px;
+    border-radius: 10px;
+    background: rgba(16, 24, 40, 0.65);
+    border: 1px solid rgba(100, 160, 255, 0.1);
+    cursor: default;
+    transition: background 0.12s, border-color 0.12s;
+  }
+
+  .pass-card:hover, .pass-card.highlight {
+    background: var(--row-hover);
+    border-color: rgba(77, 163, 255, 0.35);
+  }
+
+  .pass-card .top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+
+  .pass-card .sat-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: #fff;
+  }
+
+  .pass-card .max-el {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--success);
+    white-space: nowrap;
+  }
+
+  .pass-card .meta {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 3px 10px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .pass-card .meta b {
+    color: var(--text);
+    font-weight: 500;
+    font-family: var(--mono);
+    font-size: 10.5px;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  @media (max-width: 720px) {
+    #panel {
+      top: auto;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      width: 100%;
+      height: 48vh;
+      border-radius: var(--radius) var(--radius) 0 0;
+    }
+  }
+</style>
+</head>
+<body>
+<canvas id="globe"></canvas>
+
+<div id="hud-top">
+  <h1>Starlink Constellation</h1>
+  <div class="sub">
+    <span id="sat-count">—</span> sats · sim <span id="sim-clock">—</span>
+    <span id="freeze-hint"></span>
+  </div>
+</div>
+
+<div id="tooltip"></div>
+
+<aside id="panel">
+  <header>
+    <h2>Pass Predictor</h2>
+    <p>Visible Starlink passes · next 24 hours</p>
+  </header>
+
+  <div class="controls">
+    <div class="field full">
+      <label>Ground location</label>
+      <select id="city-select">
+        <option value="custom">Custom coordinates…</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Latitude °</label>
+      <input id="lat-input" type="number" step="0.0001" min="-90" max="90" value="40.7128" />
+    </div>
+    <div class="field">
+      <label>Longitude °</label>
+      <input id="lon-input" type="number" step="0.0001" min="-180" max="180" value="-74.0060" />
+    </div>
+    <div class="field full">
+      <label>Minimum elevation °</label>
+      <input id="min-el-input" type="number" step="1" min="0" max="90" value="10" />
+    </div>
+    <div class="city-name" id="city-label">New York, NY</div>
+  </div>
+
+  <div id="sky-wrap">
+    <div class="sky-label">Sky plot · N up · zenith center</div>
+    <canvas id="sky" width="360" height="360"></canvas>
+  </div>
+
+  <div id="status-bar">
+    <div class="spinner"></div>
+    <span id="status-text">Ready</span>
+  </div>
+
+  <div id="pass-list">
+    <div class="empty-state">Computing will start shortly…</div>
+  </div>
+</aside>
+
+<script src="satellite.min.js"></script>
+<script src="starlink-data.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  const EARTH_R = 6371; // km
+  const DEG = Math.PI / 180;
+  const RAD = 180 / Math.PI;
+
+  // ── Cities ──────────────────────────────────────────────────────────
+  const CITIES = [
+    { name: "New York, NY", lat: 40.7128, lon: -74.0060 },
+    { name: "Los Angeles, CA", lat: 34.0522, lon: -118.2437 },
+    { name: "London, UK", lat: 51.5074, lon: -0.1278 },
+    { name: "Tokyo, Japan", lat: 35.6762, lon: 139.6503 },
+    { name: "Sydney, Australia", lat: -33.8688, lon: 151.2093 },
+    { name: "Cape Canaveral, FL", lat: 28.3922, lon: -80.6077 },
+    { name: "Vandenberg SFB, CA", lat: 34.7420, lon: -120.5724 },
+    { name: "Berlin, Germany", lat: 52.5200, lon: 13.4050 },
+    { name: "São Paulo, Brazil", lat: -23.5505, lon: -46.6333 },
+    { name: "Dubai, UAE", lat: 25.2048, lon: 55.2708 },
+  ];
+
+  // ── DOM ─────────────────────────────────────────────────────────────
+  const canvas = document.getElementById("globe");
+  const ctx = canvas.getContext("2d", { alpha: false });
+  const tooltip = document.getElementById("tooltip");
+  const satCountEl = document.getElementById("sat-count");
+  const simClockEl = document.getElementById("sim-clock");
+  const freezeHintEl = document.getElementById("freeze-hint");
+  const citySelect = document.getElementById("city-select");
+  const latInput = document.getElementById("lat-input");
+  const lonInput = document.getElementById("lon-input");
+  const minElInput = document.getElementById("min-el-input");
+  const cityLabel = document.getElementById("city-label");
+  const statusBar = document.getElementById("status-bar");
+  const statusText = document.getElementById("status-text");
+  const passList = document.getElementById("pass-list");
+  const skyCanvas = document.getElementById("sky");
+  const skyCtx = skyCanvas.getContext("2d");
+
+  CITIES.forEach((c, i) => {
+    const opt = document.createElement("option");
+    opt.value = String(i);
+    opt.textContent = c.name;
+    if (i === 0) opt.selected = true;
+    citySelect.appendChild(opt);
+  });
+
+  // ── State ───────────────────────────────────────────────────────────
+  let W = 0, H = 0, dpr = 1;
+  let earthRadiusPx = 0;
+  let rotY = 0.35; // auto-rotate yaw
+  let rotX = 0.35; // tilt
+  let mouseOverGlobe = false;
+  let mouseX = 0, mouseY = 0;
+  let hoveredSat = null;
+
+  // Simulation clock (time-lapse)
+  let simTime = Date.now();
+  const TIME_SCALE = 90; // 90× real time when animating
+
+  // Stars
+  const STARS = [];
+  for (let i = 0; i < 500; i++) {
+    STARS.push({
+      x: Math.random(),
+      y: Math.random(),
+      r: Math.random() * 1.4 + 0.2,
+      a: Math.random() * 0.7 + 0.3,
+    });
+  }
+
+  // Satellite records
+  const sats = [];
+  const raw = Array.isArray(window.SAT) ? window.SAT : [];
+
+  for (let i = 0; i < raw.length; i++) {
+    const row = raw[i];
+    if (!row || row.length < 3) continue;
+    try {
+      const satrec = satellite.twoline2satrec(row[1], row[2]);
+      if (satrec && satrec.error === 0) {
+        sats.push({
+          name: row[0] || "UNKNOWN",
+          tle1: row[1],
+          tle2: row[2],
+          launchDate: row[3] || "—",
+          status: row[4] || "—",
+          launchSite: row[5] || "—",
+          satrec,
+          // per-frame state
+          x: 0, y: 0, z: 0,
+          sx: 0, sy: 0,
+          visible: false,
+          depth: 0,
+          alt: 0,
+          speed: 0,
+          lat: 0,
+          lon: 0,
+          ok: false,
+        });
+      }
+    } catch (_) { /* skip bad TLE */ }
+  }
+
+  satCountEl.textContent = String(sats.length);
+
+  // ── Resize ──────────────────────────────────────────────────────────
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = Math.floor(W * dpr);
+    canvas.height = Math.floor(H * dpr);
+    canvas.style.width = W + "px";
+    canvas.style.height = H + "px";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    earthRadiusPx = Math.min(W, H) * 0.32;
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  // ── Math helpers ────────────────────────────────────────────────────
+  function rotatePoint(x, y, z, ax, ay) {
+    // Rotate around X then Y
+    const cosX = Math.cos(ax), sinX = Math.sin(ax);
+    const cosY = Math.cos(ay), sinY = Math.sin(ay);
+    let y1 = y * cosX - z * sinX;
+    let z1 = y * sinX + z * cosX;
+    let x2 = x * cosY + z1 * sinY;
+    let z2 = -x * sinY + z1 * cosY;
+    return { x: x2, y: y1, z: z2 };
+  }
+
+  function project(x, y, z) {
+    // Simple perspective-ish orthographic blend
+    const cx = W * 0.38;
+    const cy = H * 0.5;
+    const scale = earthRadiusPx;
+    return {
+      sx: cx + x * scale,
+      sy: cy - y * scale,
+      depth: z,
+    };
+  }
+
+  function compassFromAz(azDeg) {
+    const dirs = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+                  "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+    let a = ((azDeg % 360) + 360) % 360;
+    const idx = Math.round(a / 22.5) % 16;
+    return dirs[idx];
+  }
+
+  function fmtTime(d) {
+    try {
+      return d.toLocaleTimeString(undefined, {
+        hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+      });
+    } catch (_) {
+      return d.toISOString().substr(11, 8);
+    }
+  }
+
+  function fmtDateTime(d) {
+    try {
+      return d.toLocaleString(undefined, {
+        month: "short", day: "numeric",
+        hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+      });
+    } catch (_) {
+      return d.toISOString().replace("T", " ").substr(0, 19);
+    }
+  }
+
+  function pad2(n) { return n < 10 ? "0" + n : String(n); }
+
+  function fmtDuration(sec) {
+    const m = Math.floor(sec / 60);
+    const s = Math.round(sec % 60);
+    return m + "m " + pad2(s) + "s";
+  }
+
+  // ── Propagate all sats at simTime ───────────────────────────────────
+  function updateSatellitePositions() {
+    const date = new Date(simTime);
+    const gmst = satellite.gstime(date);
+    let live = 0;
+
+    for (let i = 0; i < sats.length; i++) {
+      const s = sats[i];
+      let pv;
+      try {
+        pv = satellite.propagate(s.satrec, date);
+      } catch (_) {
+        s.ok = false;
+        s.visible = false;
+        continue;
+      }
+      if (!pv || !pv.position || !pv.velocity) {
+        s.ok = false;
+        s.visible = false;
+        continue;
+      }
+
+      const p = pv.position;
+      const v = pv.velocity;
+      // Unit-sphere coords: ECI km / Earth radius
+      const ux = p.x / EARTH_R;
+      const uy = p.y / EARTH_R;
+      const uz = p.z / EARTH_R;
+
+      const r = rotatePoint(ux, uy, uz, rotX, rotY);
+      s.x = r.x; s.y = r.y; s.z = r.z;
+
+      const pr = project(r.x, r.y, r.z);
+      s.sx = pr.sx;
+      s.sy = pr.sy;
+      s.depth = pr.depth;
+
+      // Behind the Earth? (z toward viewer is positive after rotation)
+      // Front hemisphere has z > 0 after our rotate+project convention
+      // After rot: +z is toward viewer if we treat screen depth as z
+      // Unit sphere: points with z < -sqrt(x^2+y^2) wait...
+      // For a unit sphere, after rotation, positive z faces camera if we
+      // use orthographic with +z toward camera. Hide when z < 0 and
+      // projected point is inside Earth disk (occlusion by sphere).
+      const radial = Math.sqrt(r.x * r.x + r.y * r.y);
+      const occulted = r.z < 0 && radial < 1.0;
+      s.visible = !occulted;
+      s.ok = true;
+
+      const rMag = Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+      s.alt = rMag - EARTH_R;
+      s.speed = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+
+      try {
+        const gd = satellite.eciToGeodetic(p, gmst);
+        s.lat = gd.latitude * RAD;
+        s.lon = satellite.degreesLong(gd.longitude);
+        if (gd.height != null) s.alt = gd.height;
+      } catch (_) { /* keep previous */ }
+
+      if (s.visible) live++;
+    }
+    return live;
+  }
+
+  // ── Draw globe ──────────────────────────────────────────────────────
+  function drawStarfield() {
+    ctx.fillStyle = "#05070c";
+    ctx.fillRect(0, 0, W, H);
+    for (let i = 0; i < STARS.length; i++) {
+      const st = STARS[i];
+      ctx.beginPath();
+      ctx.fillStyle = "rgba(220,230,255," + st.a + ")";
+      ctx.arc(st.x * W, st.y * H, st.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawAtmosphere() {
+    const cx = W * 0.38;
+    const cy = H * 0.5;
+    const r = earthRadiusPx;
+
+    // Soft blue atmosphere glow
+    const g = ctx.createRadialGradient(cx, cy, r * 0.92, cx, cy, r * 1.28);
+    g.addColorStop(0, "rgba(60, 140, 255, 0.0)");
+    g.addColorStop(0.45, "rgba(50, 130, 255, 0.18)");
+    g.addColorStop(0.75, "rgba(40, 110, 220, 0.08)");
+    g.addColorStop(1, "rgba(20, 60, 140, 0)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 1.28, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Thin bright rim
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 1.01, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(120, 190, 255, 0.35)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  function drawEarth() {
+    const cx = W * 0.38;
+    const cy = H * 0.5;
+    const r = earthRadiusPx;
+
+    // Sphere body
+    const body = ctx.createRadialGradient(
+      cx - r * 0.35, cy - r * 0.4, r * 0.1,
+      cx, cy, r
+    );
+    body.addColorStop(0, "#1a3a6a");
+    body.addColorStop(0.35, "#0d2244");
+    body.addColorStop(0.7, "#071428");
+    body.addColorStop(1, "#020810");
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = body;
+    ctx.fill();
+
+    // Specular highlight
+    const hi = ctx.createRadialGradient(
+      cx - r * 0.3, cy - r * 0.35, 0,
+      cx - r * 0.3, cy - r * 0.35, r * 0.7
+    );
+    hi.addColorStop(0, "rgba(140, 190, 255, 0.18)");
+    hi.addColorStop(1, "rgba(140, 190, 255, 0)");
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = hi;
+    ctx.fill();
+
+    // Lat / lon grid
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.clip();
+
+    ctx.strokeStyle = "rgba(100, 170, 255, 0.12)";
+    ctx.lineWidth = 1;
+
+    // Parallels
+    for (let lat = -60; lat <= 60; lat += 30) {
+      ctx.beginPath();
+      let first = true;
+      for (let lon = 0; lon <= 360; lon += 4) {
+        const la = lat * DEG;
+        const lo = lon * DEG;
+        const x = Math.cos(la) * Math.cos(lo);
+        const y = Math.sin(la);
+        const z = Math.cos(la) * Math.sin(lo);
+        const rr = rotatePoint(x, y, z, rotX, rotY);
+        if (rr.z < -0.05) { first = true; continue; }
+        const pr = project(rr.x, rr.y, rr.z);
+        if (first) { ctx.moveTo(pr.sx, pr.sy); first = false; }
+        else ctx.lineTo(pr.sx, pr.sy);
+      }
+      ctx.stroke();
+    }
+
+    // Meridians
+    for (let lon = 0; lon < 360; lon += 30) {
+      ctx.beginPath();
+      let first = true;
+      for (let lat = -90; lat <= 90; lat += 3) {
+        const la = lat * DEG;
+        const lo = lon * DEG;
+        const x = Math.cos(la) * Math.cos(lo);
+        const y = Math.sin(la);
+        const z = Math.cos(la) * Math.sin(lo);
+        const rr = rotatePoint(x, y, z, rotX, rotY);
+        if (rr.z < -0.05) { first = true; continue; }
+        const pr = project(rr.x, rr.y, rr.z);
+        if (first) { ctx.moveTo(pr.sx, pr.sy); first = false; }
+        else ctx.lineTo(pr.sx, pr.sy);
+      }
+      ctx.stroke();
+    }
+
+    // Equator slightly brighter
+    ctx.strokeStyle = "rgba(120, 190, 255, 0.22)";
+    ctx.beginPath();
+    let first = true;
+    for (let lon = 0; lon <= 360; lon += 3) {
+      const lo = lon * DEG;
+      const x = Math.cos(lo);
+      const y = 0;
+      const z = Math.sin(lo);
+      const rr = rotatePoint(x, y, z, rotX, rotY);
+      if (rr.z < -0.05) { first = true; continue; }
+      const pr = project(rr.x, rr.y, rr.z);
+      if (first) { ctx.moveTo(pr.sx, pr.sy); first = false; }
+      else ctx.lineTo(pr.sx, pr.sy);
+    }
+    ctx.stroke();
+
+    ctx.restore();
+
+    // Soft terminator edge
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(30, 80, 160, 0.5)";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  function drawSatellites() {
+    // Sort back-to-front for nicer overdraw
+    const visible = [];
+    for (let i = 0; i < sats.length; i++) {
+      if (sats[i].ok && sats[i].visible) visible.push(sats[i]);
+    }
+    visible.sort((a, b) => a.depth - b.depth);
+
+    for (let i = 0; i < visible.length; i++) {
+      const s = visible[i];
+      // Depth shading: farther (smaller z) dimmer/smaller
+      const t = Math.max(0, Math.min(1, (s.depth + 1.2) / 2.4));
+      const alpha = 0.25 + t * 0.75;
+      const radius = 0.8 + t * 1.6;
+      const isHover = hoveredSat === s;
+
+      if (isHover) {
+        ctx.beginPath();
+        ctx.arc(s.sx, s.sy, 8, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(120, 200, 255, 0.25)";
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(s.sx, s.sy, 3.2, 0, Math.PI * 2);
+        ctx.fillStyle = "#ffffff";
+        ctx.shadowColor = "#4da3ff";
+        ctx.shadowBlur = 12;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      } else {
+        ctx.beginPath();
+        ctx.arc(s.sx, s.sy, radius, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(160, 210, 255," + alpha.toFixed(3) + ")";
+        ctx.fill();
+      }
+    }
+  }
+
+  function hitTest(mx, my) {
+    let best = null;
+    let bestD = 10; // px threshold
+    for (let i = 0; i < sats.length; i++) {
+      const s = sats[i];
+      if (!s.ok || !s.visible) continue;
+      const dx = s.sx - mx;
+      const dy = s.sy - my;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d < bestD) {
+        bestD = d;
+        best = s;
+      }
+    }
+    return best;
+  }
+
+  function showTooltip(s, mx, my) {
+    const norad = s.satrec.satnum != null ? String(s.satrec.satnum) : "—";
+    const statusClass = /operat/i.test(s.status) ? "status-op" : "status-other";
+    tooltip.innerHTML =
+      '<div class="name">' + escapeHtml(s.name) + "</div>" +
+      row("NORAD", norad) +
+      row("Launch", escapeHtml(s.launchDate)) +
+      row("Status", '<span class="' + statusClass + '">' + escapeHtml(s.status) + "</span>", true) +
+      row("Site", escapeHtml(s.launchSite)) +
+      row("Altitude", s.alt.toFixed(1) + " km") +
+      row("Speed", s.speed.toFixed(3) + " km/s") +
+      row("Latitude", s.lat.toFixed(3) + "°") +
+      row("Longitude", s.lon.toFixed(3) + "°");
+
+    tooltip.style.display = "block";
+    let tx = mx + 16;
+    let ty = my + 16;
+    const tw = 260;
+    const th = 200;
+    if (tx + tw > W - 20) tx = mx - tw - 8;
+    if (ty + th > H - 20) ty = my - th - 8;
+    tooltip.style.left = tx + "px";
+    tooltip.style.top = ty + "px";
+  }
+
+  function row(k, v, raw) {
+    return '<div class="row"><span class="k">' + k + '</span><span class="v">' +
+      (raw ? v : escapeHtml(String(v))) + "</span></div>";
+  }
+
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  // ── Animation loop ──────────────────────────────────────────────────
+  let lastTs = 0;
+  function frame(ts) {
+    if (!lastTs) lastTs = ts;
+    const dt = Math.min(0.05, (ts - lastTs) / 1000);
+    lastTs = ts;
+
+    if (!mouseOverGlobe) {
+      rotY += dt * 0.08;
+      simTime += dt * 1000 * TIME_SCALE;
+    }
+
+    drawStarfield();
+    drawAtmosphere();
+    drawEarth();
+    updateSatellitePositions();
+    drawSatellites();
+
+    // HUD
+    const d = new Date(simTime);
+    simClockEl.textContent = fmtDateTime(d);
+    freezeHintEl.textContent = mouseOverGlobe ? " · frozen" : "";
+
+    // Hover
+    if (mouseOverGlobe) {
+      hoveredSat = hitTest(mouseX, mouseY);
+      if (hoveredSat) showTooltip(hoveredSat, mouseX, mouseY);
+      else tooltip.style.display = "none";
+    } else {
+      hoveredSat = null;
+      tooltip.style.display = "none";
+    }
+
+    requestAnimationFrame(frame);
+  }
+
+  // Mouse over globe (not panel)
+  const panel = document.getElementById("panel");
+
+  canvas.addEventListener("mousemove", (e) => {
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+    // Globe is everything except the panel rect
+    const rect = panel.getBoundingClientRect();
+    const overPanel =
+      e.clientX >= rect.left && e.clientX <= rect.right &&
+      e.clientY >= rect.top && e.clientY <= rect.bottom;
+    mouseOverGlobe = !overPanel;
+  });
+
+  canvas.addEventListener("mouseleave", () => {
+    mouseOverGlobe = false;
+    tooltip.style.display = "none";
+  });
+
+  // Also track when leaving panel back to globe
+  document.addEventListener("mousemove", (e) => {
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+    const rect = panel.getBoundingClientRect();
+    const overPanel =
+      e.clientX >= rect.left && e.clientX <= rect.right &&
+      e.clientY >= rect.top && e.clientY <= rect.bottom;
+    mouseOverGlobe = !overPanel;
+  });
+
+  // ── Pass predictor ──────────────────────────────────────────────────
+  let passJobId = 0;
+  let currentPasses = [];
+
+  function getObserver() {
+    const lat = parseFloat(latInput.value);
+    const lon = parseFloat(lonInput.value);
+    const minEl = parseFloat(minElInput.value);
+    return {
+      lat: isFinite(lat) ? lat : 40.7128,
+      lon: isFinite(lon) ? lon : -74.0060,
+      minEl: isFinite(minEl) ? minEl : 10,
+    };
+  }
+
+  function setComputing(on, msg) {
+    if (on) {
+      statusBar.classList.add("computing");
+      statusText.textContent = msg || "Computing passes…";
+    } else {
+      statusBar.classList.remove("computing");
+      statusText.textContent = msg || "Ready";
+    }
+  }
+
+  function lookAt(satrec, date, observerGd) {
+    let pv;
+    try {
+      pv = satellite.propagate(satrec, date);
+    } catch (_) {
+      return null;
+    }
+    if (!pv || !pv.position) return null;
+    try {
+      const gmst = satellite.gstime(date);
+      const ecf = satellite.eciToEcf(pv.position, gmst);
+      const la = satellite.ecfToLookAngles(observerGd, ecf);
+      return {
+        elevation: la.elevation * RAD,
+        azimuth: ((la.azimuth * RAD) % 360 + 360) % 360,
+        range: la.rangeSat,
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /**
+   * Find passes for one satellite over [t0, t1] with ~30s steps.
+   * Arc samples stored every ~60s to keep memory light for sky plot.
+   */
+  function findPassesForSat(sat, t0, t1, stepMs, observerGd, minEl) {
+    const passes = [];
+    let inPass = false;
+    let aos = null, aosAz = 0, los = null, losAz = 0;
+    let maxEl = -999, maxElAz = 0;
+    let samples = [];
+    let sampleStride = 0;
+    let prevLook = null;
+    let prevT = t0;
+    const satrec = sat.satrec;
+
+    for (let t = t0; t <= t1; t += stepMs) {
+      const date = new Date(t);
+      const look = lookAt(satrec, date, observerGd);
+      if (!look) {
+        prevLook = null;
+        prevT = t;
+        continue;
+      }
+
+      if (look.elevation >= minEl) {
+        if (!inPass) {
+          // Rising through threshold — interpolate AOS
+          inPass = true;
+          if (prevLook && prevLook.elevation < minEl) {
+            const frac = (minEl - prevLook.elevation) /
+              (look.elevation - prevLook.elevation + 1e-9);
+            const aosT = prevT + frac * (t - prevT);
+            aos = new Date(aosT);
+            aosAz = prevLook.azimuth + frac * (look.azimuth - prevLook.azimuth);
+          } else {
+            aos = date;
+            aosAz = look.azimuth;
+          }
+          maxEl = look.elevation;
+          maxElAz = look.azimuth;
+          samples = [{ az: look.azimuth, el: look.elevation }];
+          sampleStride = 0;
+        } else {
+          if (look.elevation > maxEl) {
+            maxEl = look.elevation;
+            maxElAz = look.azimuth;
+          }
+          sampleStride++;
+          if (sampleStride % 2 === 0) {
+            samples.push({ az: look.azimuth, el: look.elevation });
+          }
+        }
+      } else if (inPass) {
+        // Setting below threshold
+        inPass = false;
+        if (prevLook && prevLook.elevation >= minEl) {
+          const frac = (prevLook.elevation - minEl) /
+            (prevLook.elevation - look.elevation + 1e-9);
+          const losT = prevT + frac * (t - prevT);
+          los = new Date(losT);
+          losAz = prevLook.azimuth + frac * (look.azimuth - prevLook.azimuth);
+        } else {
+          los = date;
+          losAz = look.azimuth;
+        }
+        samples.push({ az: look.azimuth, el: Math.max(0, look.elevation) });
+        passes.push({
+          name: sat.name,
+          norad: satrec.satnum,
+          aos,
+          los,
+          aosAz: ((aosAz % 360) + 360) % 360,
+          losAz: ((losAz % 360) + 360) % 360,
+          maxEl,
+          maxElAz,
+          durationSec: (los - aos) / 1000,
+          samples,
+        });
+        samples = [];
+      }
+
+      prevLook = look;
+      prevT = t;
+    }
+
+    // Open pass truncated at window end — still report it
+    if (inPass && aos) {
+      const losDate = new Date(t1);
+      passes.push({
+        name: sat.name,
+        norad: satrec.satnum,
+        aos,
+        los: losDate,
+        aosAz: ((aosAz % 360) + 360) % 360,
+        losAz: maxElAz,
+        maxEl,
+        maxElAz,
+        durationSec: (losDate - aos) / 1000,
+        samples,
+        truncated: true,
+      });
+    }
+
+    return passes;
+  }
+
+  async function computePasses() {
+    const job = ++passJobId;
+    const { lat, lon, minEl } = getObserver();
+    const observerGd = {
+      longitude: lon * DEG,
+      latitude: lat * DEG,
+      height: 0.05, // km
+    };
+
+    const t0 = Date.now();
+    const t1 = t0 + 24 * 3600 * 1000;
+    const stepMs = 30 * 1000;
+
+    setComputing(true, "Computing passes… 0%");
+    passList.innerHTML = '<div class="empty-state">Scanning constellation…</div>';
+    currentPasses = [];
+    drawSkyPlot([]);
+
+    const all = [];
+    const batchSize = 40;
+    const total = sats.length;
+
+    for (let i = 0; i < total; i += batchSize) {
+      if (job !== passJobId) return; // cancelled by newer request
+
+      const end = Math.min(i + batchSize, total);
+      for (let j = i; j < end; j++) {
+        const found = findPassesForSat(sats[j], t0, t1, stepMs, observerGd, minEl);
+        for (let k = 0; k < found.length; k++) all.push(found[k]);
+      }
+
+      const pct = Math.floor((end / total) * 100);
+      setComputing(true, "Computing passes… " + pct + "% · " + all.length + " found");
+
+      // Yield to UI so globe keeps animating
+      await new Promise((r) => setTimeout(r, 0));
+    }
+
+    if (job !== passJobId) return;
+
+    all.sort((a, b) => a.aos - b.aos);
+    currentPasses = all;
+    renderPassList(all);
+    drawSkyPlot(all);
+
+    const msg = all.length === 0
+      ? "No passes above " + minEl + "° in the next 24 h"
+      : all.length.toLocaleString() + " pass" + (all.length === 1 ? "" : "es") + " in next 24 h";
+    setComputing(false, msg);
+  }
+
+  const LIST_LIMIT = 400;
+
+  function renderPassList(passes) {
+    if (!passes.length) {
+      passList.innerHTML = '<div class="empty-state">No visible passes in this window.<br/>Try a lower minimum elevation.</div>';
+      return;
+    }
+
+    const show = Math.min(passes.length, LIST_LIMIT);
+    const parts = [];
+    if (passes.length > LIST_LIMIT) {
+      parts.push(
+        '<div class="empty-state" style="padding:12px 8px 10px;font-size:11px">' +
+        "Showing first " + LIST_LIMIT + " of " + passes.length.toLocaleString() +
+        " passes (sorted by rise time)</div>"
+      );
+    }
+
+    for (let i = 0; i < show; i++) {
+      const p = passes[i];
+      parts.push(
+        '<div class="pass-card" data-idx="' + i + '">' +
+          '<div class="top">' +
+            '<span class="sat-name">' + escapeHtml(p.name) + "</span>" +
+            '<span class="max-el">max ' + p.maxEl.toFixed(1) + "°</span>" +
+          "</div>" +
+          '<div class="meta">' +
+            "<div>AOS <b>" + fmtTime(p.aos) + "</b></div>" +
+            "<div>LOS <b>" + fmtTime(p.los) + "</b></div>" +
+            "<div>Duration <b>" + fmtDuration(p.durationSec) + "</b></div>" +
+            "<div>Max el <b>" + p.maxEl.toFixed(1) + "°</b></div>" +
+            "<div>AOS az <b>" + p.aosAz.toFixed(0) + "° " + compassFromAz(p.aosAz) + "</b></div>" +
+            "<div>LOS az <b>" + p.losAz.toFixed(0) + "° " + compassFromAz(p.losAz) + "</b></div>" +
+          "</div>" +
+        "</div>"
+      );
+    }
+    passList.innerHTML = parts.join("");
+
+    passList.querySelectorAll(".pass-card").forEach((card) => {
+      const idx = parseInt(card.dataset.idx, 10);
+      card.addEventListener("mouseenter", () => {
+        passList.querySelectorAll(".pass-card.highlight").forEach((el) => el.classList.remove("highlight"));
+        card.classList.add("highlight");
+        drawSkyPlot(currentPasses, idx);
+      });
+      card.addEventListener("mouseleave", () => {
+        card.classList.remove("highlight");
+        drawSkyPlot(currentPasses, -1);
+      });
+    });
+  }
+
+  // ── Polar sky plot ──────────────────────────────────────────────────
+  function drawSkyPlot(passes, highlightIdx) {
+    const c = skyCanvas;
+    const g = skyCtx;
+    const w = c.width;
+    const h = c.height;
+    const cx = w / 2;
+    const cy = h / 2;
+    const R = Math.min(w, h) * 0.42;
+
+    g.clearRect(0, 0, w, h);
+
+    // Background
+    const bg = g.createRadialGradient(cx, cy, 0, cx, cy, R * 1.15);
+    bg.addColorStop(0, "#0c1628");
+    bg.addColorStop(1, "#050a14");
+    g.fillStyle = bg;
+    g.beginPath();
+    g.arc(cx, cy, R * 1.12, 0, Math.PI * 2);
+    g.fill();
+
+    // Elevation rings: 0° (horizon) outer, 30°, 60°, 90° (zenith = center)
+    // Radius for elevation e: r = R * (90 - e) / 90
+    const ringEls = [0, 30, 60];
+    g.strokeStyle = "rgba(100, 160, 255, 0.2)";
+    g.lineWidth = 1;
+    for (let i = 0; i < ringEls.length; i++) {
+      const e = ringEls[i];
+      const rr = R * (90 - e) / 90;
+      g.beginPath();
+      g.arc(cx, cy, rr, 0, Math.PI * 2);
+      g.stroke();
+    }
+    // Tiny zenith mark (90°)
+    g.beginPath();
+    g.arc(cx, cy, 2, 0, Math.PI * 2);
+    g.fillStyle = "rgba(100, 160, 255, 0.4)";
+    g.fill();
+
+    // Cardinal lines
+    g.strokeStyle = "rgba(100, 160, 255, 0.15)";
+    g.beginPath();
+    g.moveTo(cx, cy - R);
+    g.lineTo(cx, cy + R);
+    g.moveTo(cx - R, cy);
+    g.lineTo(cx + R, cy);
+    g.stroke();
+
+    // Labels
+    g.fillStyle = "rgba(160, 190, 230, 0.7)";
+    g.font = "11px " + getComputedStyle(document.body).fontFamily;
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.fillText("N", cx, cy - R - 10);
+    g.fillText("S", cx, cy + R + 10);
+    g.fillText("E", cx + R + 10, cy);
+    g.fillText("W", cx - R - 10, cy);
+
+    g.fillStyle = "rgba(120, 160, 200, 0.45)";
+    g.font = "9px " + getComputedStyle(document.body).fontFamily;
+    g.fillText("30°", cx + 4, cy - R * (90 - 30) / 90);
+    g.fillText("60°", cx + 4, cy - R * (90 - 60) / 90);
+    g.fillText("0°", cx + 4, cy - R + 10);
+
+    // Map az/el → canvas (N up, E right)
+    function toXY(az, el) {
+      const elev = Math.max(0, Math.min(90, el));
+      const r = R * (90 - elev) / 90;
+      const a = az * DEG;
+      // az 0 = N, 90 = E; screen y decreases upward
+      return {
+        x: cx + r * Math.sin(a),
+        y: cy - r * Math.cos(a),
+      };
+    }
+
+    // Draw pass arcs — prefer higher max-el so the plot stays readable
+    // when thousands of Starlink passes crowd the sky.
+    const MAX_ARCS = 180;
+    let indices;
+    if (passes.length <= MAX_ARCS) {
+      indices = passes.map((_, i) => i);
+    } else {
+      // Take top by max elevation, always include highlight
+      const ranked = passes
+        .map((p, i) => ({ i, e: p.maxEl }))
+        .sort((a, b) => b.e - a.e)
+        .slice(0, MAX_ARCS)
+        .map((o) => o.i);
+      if (highlightIdx >= 0 && ranked.indexOf(highlightIdx) < 0) {
+        ranked[ranked.length - 1] = highlightIdx;
+      }
+      indices = ranked.sort((a, b) => a - b);
+    }
+
+    for (let n = 0; n < indices.length; n++) {
+      const i = indices[n];
+      const p = passes[i];
+      const samples = p.samples || [];
+      if (samples.length < 2) continue;
+      const hi = highlightIdx === i;
+      const maxT = Math.max(0.12, Math.min(1, p.maxEl / 90));
+
+      g.beginPath();
+      let started = false;
+      for (let j = 0; j < samples.length; j++) {
+        const s = samples[j];
+        if (s.el < 0) continue;
+        const pt = toXY(s.az, s.el);
+        if (!started) { g.moveTo(pt.x, pt.y); started = true; }
+        else g.lineTo(pt.x, pt.y);
+      }
+      g.strokeStyle = hi
+        ? "rgba(120, 220, 255, 0.95)"
+        : "rgba(77, 163, 255," + (0.18 + maxT * 0.5).toFixed(2) + ")";
+      g.lineWidth = hi ? 2.5 : 1.1;
+      g.stroke();
+
+      // AOS marker
+      if (samples.length) {
+        const a = toXY(p.aosAz, Math.max(0, samples[0].el));
+        g.beginPath();
+        g.arc(a.x, a.y, hi ? 3.5 : 1.8, 0, Math.PI * 2);
+        g.fillStyle = hi ? "#fff" : "rgba(93, 222, 168, 0.7)";
+        g.fill();
+      }
+    }
+  }
+
+  // ── Location UI ─────────────────────────────────────────────────────
+  function syncCityLabel() {
+    const lat = parseFloat(latInput.value);
+    const lon = parseFloat(lonInput.value);
+    let match = null;
+    for (let i = 0; i < CITIES.length; i++) {
+      const c = CITIES[i];
+      if (Math.abs(c.lat - lat) < 0.05 && Math.abs(c.lon - lon) < 0.05) {
+        match = c;
+        break;
+      }
+    }
+    if (match) {
+      cityLabel.textContent = match.name;
+      // keep select in sync without firing change storms
+      const idx = CITIES.indexOf(match);
+      if (citySelect.value !== String(idx)) citySelect.value = String(idx);
+    } else {
+      cityLabel.textContent = "Custom · " + lat.toFixed(4) + "°, " + lon.toFixed(4) + "°";
+      citySelect.value = "custom";
+    }
+  }
+
+  let recomputeTimer = null;
+  function scheduleRecompute() {
+    syncCityLabel();
+    if (recomputeTimer) clearTimeout(recomputeTimer);
+    recomputeTimer = setTimeout(() => {
+      recomputeTimer = null;
+      computePasses();
+    }, 280);
+  }
+
+  citySelect.addEventListener("change", () => {
+    const v = citySelect.value;
+    if (v === "custom") return;
+    const c = CITIES[parseInt(v, 10)];
+    if (!c) return;
+    latInput.value = c.lat.toFixed(4);
+    lonInput.value = c.lon.toFixed(4);
+    scheduleRecompute();
+  });
+
+  latInput.addEventListener("input", scheduleRecompute);
+  lonInput.addEventListener("input", scheduleRecompute);
+  minElInput.addEventListener("input", scheduleRecompute);
+
+  // ── Boot ────────────────────────────────────────────────────────────
+  syncCityLabel();
+  drawSkyPlot([]);
+  requestAnimationFrame(frame);
+  // Kick off pass prediction after first paint
+  setTimeout(computePasses, 100);
+})();
+</script>
+</body>
+</html>
