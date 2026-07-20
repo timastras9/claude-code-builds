@@ -3,106 +3,97 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Starlink — Orbital Swarm</title>
+  <title>Starlink Constellation</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body {
-      width: 100%;
-      height: 100%;
+      width: 100%; height: 100%;
       overflow: hidden;
       background: #02040a;
+      font-family: "SF Pro Display", "Segoe UI", system-ui, -apple-system, sans-serif;
       cursor: crosshair;
-      font-family: "SF Mono", "Menlo", "Consolas", "Roboto Mono", monospace;
     }
     canvas {
       display: block;
-      width: 100%;
-      height: 100%;
-      position: fixed;
-      inset: 0;
+      width: 100%; height: 100%;
     }
     #tooltip {
       position: fixed;
       pointer-events: none;
-      opacity: 0;
-      transform: translate(14px, 14px);
       z-index: 10;
-      background: rgba(4, 12, 24, 0.88);
-      border: 1px solid rgba(120, 220, 255, 0.35);
+      display: none;
+      min-width: 240px;
+      max-width: 320px;
+      padding: 14px 16px;
+      border-radius: 12px;
+      background: linear-gradient(160deg, rgba(8, 16, 32, 0.94), rgba(4, 10, 22, 0.96));
+      border: 1px solid rgba(120, 200, 255, 0.28);
       box-shadow:
-        0 0 24px rgba(0, 180, 255, 0.18),
-        0 8px 32px rgba(0, 0, 0, 0.55),
-        inset 0 1px 0 rgba(180, 240, 255, 0.08);
-      border-radius: 8px;
-      padding: 10px 14px;
-      color: #c8f0ff;
-      font-size: 12px;
-      line-height: 1.55;
-      letter-spacing: 0.02em;
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      min-width: 210px;
-      transition: opacity 0.12s ease;
+        0 0 0 1px rgba(0, 0, 0, 0.4),
+        0 12px 40px rgba(0, 20, 60, 0.55),
+        0 0 28px rgba(80, 180, 255, 0.12);
+      color: #e8f4ff;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      transform: translate(14px, 14px);
     }
-    #tooltip.visible { opacity: 1; }
     #tooltip .name {
-      color: #fff;
-      font-weight: 600;
-      font-size: 13px;
-      letter-spacing: 0.04em;
-      margin-bottom: 6px;
-      padding-bottom: 6px;
-      border-bottom: 1px solid rgba(100, 200, 255, 0.2);
-      text-shadow: 0 0 12px rgba(120, 220, 255, 0.45);
+      font-size: 15px;
+      font-weight: 650;
+      letter-spacing: 0.03em;
+      color: #f0f8ff;
+      margin-bottom: 10px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(120, 200, 255, 0.18);
     }
     #tooltip .row {
       display: flex;
       justify-content: space-between;
       gap: 16px;
+      font-size: 12px;
+      line-height: 1.65;
     }
     #tooltip .label {
-      color: rgba(140, 190, 220, 0.7);
-      text-transform: uppercase;
-      font-size: 10px;
-      letter-spacing: 0.08em;
+      color: rgba(160, 200, 230, 0.65);
+      font-weight: 500;
+      white-space: nowrap;
     }
-    #tooltip .val {
-      color: #9ee8ff;
+    #tooltip .value {
+      color: #c8e8ff;
       font-variant-numeric: tabular-nums;
+      text-align: right;
+      font-weight: 500;
     }
+    #tooltip .value.accent { color: #7ee0ff; }
     #hud {
       position: fixed;
       top: 18px;
       left: 22px;
       z-index: 5;
-      color: rgba(160, 210, 240, 0.55);
+      pointer-events: none;
+      color: rgba(180, 220, 255, 0.55);
       font-size: 11px;
       letter-spacing: 0.14em;
       text-transform: uppercase;
-      pointer-events: none;
-      user-select: none;
+      font-weight: 500;
     }
     #hud strong {
-      color: rgba(200, 240, 255, 0.85);
-      font-weight: 500;
-      letter-spacing: 0.2em;
+      color: rgba(200, 235, 255, 0.85);
+      font-weight: 600;
     }
     #hud .sub {
       margin-top: 4px;
-      font-size: 10px;
-      letter-spacing: 0.1em;
-      color: rgba(120, 180, 210, 0.4);
-    }
-    #hud .frozen {
-      color: rgba(100, 220, 255, 0.75);
+      letter-spacing: 0.06em;
+      text-transform: none;
+      opacity: 0.7;
     }
   </style>
 </head>
 <body>
   <canvas id="c"></canvas>
   <div id="hud">
-    <strong>Starlink Constellation</strong>
-    <div class="sub" id="hud-sub">live orbital positions · SGP4</div>
+    <div>Starlink · <strong id="count">—</strong> satellites</div>
+    <div class="sub" id="status">propagating orbits…</div>
   </div>
   <div id="tooltip"></div>
 
@@ -110,66 +101,33 @@
   <script src="starlink-data.js"></script>
   <script>
 (function () {
-  "use strict";
+  'use strict';
 
-  const EARTH_RADIUS_KM = 6371;
-  const TIME_SCALE = 180;          // seconds of sim time per real second
-  const ROTATE_SPEED = 0.07;       // rad/s globe spin
-  const TILT = 0.38;               // axial tilt for nicer framing
-  const HIT_RADIUS_PX = 10;
-
-  const canvas = document.getElementById("c");
-  const ctx = canvas.getContext("2d", { alpha: false });
-  const tooltip = document.getElementById("tooltip");
-  const hudSub = document.getElementById("hud-sub");
+  const EARTH_R = 6371; // km
+  const MU = 398600.4418; // km^3/s^2 (for fallback speed)
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d', { alpha: false });
+  const tooltip = document.getElementById('tooltip');
+  const countEl = document.getElementById('count');
+  const statusEl = document.getElementById('status');
 
   let W = 0, H = 0, dpr = 1;
-  let globeR = 0;
-  let cx = 0, cy = 0;
+  let stars = [];
 
-  // Camera / view state
-  let rotY = 0.65;
-  let frozen = false;
-  let mouseX = -1e9, mouseY = -1e9;
-  let mouseIn = false;
-
-  // Simulation clock (ms since epoch, advanced by TIME_SCALE)
+  // View state
+  let rotY = 0.35;       // yaw around polar axis
+  let rotX = 0.38;       // tilt
+  let autoRot = 0.00022; // rad per ms of wall time when animating
+  let timeScale = 480;   // sim seconds per wall second (time-lapse)
   let simTime = Date.now();
-  let lastFrame = performance.now();
-
-  // Stars
-  const STARS = [];
-  function seedStars() {
-    STARS.length = 0;
-    const n = 420;
-    for (let i = 0; i < n; i++) {
-      STARS.push({
-        x: Math.random(),
-        y: Math.random(),
-        r: Math.random() * 1.2 + 0.2,
-        a: Math.random() * 0.45 + 0.15,
-        tw: Math.random() * Math.PI * 2,
-      });
-    }
-  }
+  let lastWall = performance.now();
+  let frozen = false;
+  let mouseX = -9999, mouseY = -9999;
+  let hoverIdx = -1;
 
   // Satellite records
-  const sats = [];
-  // Per-frame screen cache for hit testing
-  let screenSats = []; // {x,y,z,i,depth}
-
-  function initSats() {
-    const raw = window.SAT || [];
-    for (let i = 0; i < raw.length; i++) {
-      const [name, l1, l2] = raw[i];
-      try {
-        const satrec = satellite.twoline2satrec(l1, l2);
-        if (satrec && satrec.error === 0) {
-          sats.push({ name, satrec, l1, l2 });
-        }
-      } catch (_) { /* skip bad TLE */ }
-    }
-  }
+  /** @type {{satrec:any, name:string, launch:string, status:string, site:string, x:number,y:number,z:number,vx:number,vy:number,vz:number, valid:boolean, sx:number,sy:number,depth:number,visible:boolean}[]} */
+  let sats = [];
 
   function resize() {
     dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -177,489 +135,483 @@
     H = window.innerHeight;
     canvas.width = Math.floor(W * dpr);
     canvas.height = Math.floor(H * dpr);
-    canvas.style.width = W + "px";
-    canvas.style.height = H + "px";
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    cx = W * 0.5;
-    cy = H * 0.5;
-    globeR = Math.min(W, H) * 0.36;
+    buildStars();
   }
 
-  // ── Math helpers ──────────────────────────────────────────
-  function rotatePoint(x, y, z, ry, rx) {
-    // Rotate around Y then X (tilt)
-    const cosY = Math.cos(ry), sinY = Math.sin(ry);
-    let x1 = x * cosY - z * sinY;
-    let z1 = x * sinY + z * cosY;
+  function buildStars() {
+    const n = Math.floor((W * H) / 2800);
+    stars = [];
+    for (let i = 0; i < n; i++) {
+      stars.push({
+        x: Math.random() * W,
+        y: Math.random() * H,
+        r: Math.random() * 1.15 + 0.2,
+        a: Math.random() * 0.45 + 0.12,
+        tw: Math.random() * Math.PI * 2,
+      });
+    }
+  }
+
+  function initSats() {
+    const raw = window.SAT || [];
+    sats = [];
+    for (let i = 0; i < raw.length; i++) {
+      const row = raw[i];
+      if (!row || row.length < 3) continue;
+      try {
+        const satrec = satellite.twoline2satrec(row[1], row[2]);
+        if (satrec.error) continue;
+        sats.push({
+          satrec,
+          name: row[0] || 'UNKNOWN',
+          launch: row[3] || '—',
+          status: row[4] || '—',
+          site: row[5] || '—',
+          x: 0, y: 0, z: 0,
+          vx: 0, vy: 0, vz: 0,
+          valid: false,
+          sx: 0, sy: 0, depth: 0, visible: false,
+        });
+      } catch (_) { /* skip bad TLE */ }
+    }
+    countEl.textContent = sats.length.toLocaleString();
+  }
+
+  // Rotate ECI-ish frame for display: apply view rotation (rotX tilt, rotY spin)
+  function project(x, y, z, scale, cx, cy) {
+    // rotY around Y (polar)
+    const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
+    let x1 = x * cosY + z * sinY;
     let y1 = y;
-    const cosX = Math.cos(rx), sinX = Math.sin(rx);
-    const y2 = y1 * cosX - z1 * sinX;
-    const z2 = y1 * sinX + z1 * cosX;
-    return { x: x1, y: y2, z: z2 };
+    let z1 = -x * sinY + z * cosY;
+    // rotX around X (tilt)
+    const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
+    let x2 = x1;
+    let y2 = y1 * cosX - z1 * sinX;
+    let z2 = y1 * sinX + z1 * cosX;
+    // perspective-ish orthographic blend
+    const persp = 1 / (1 + z2 * 0.18);
+    const sx = cx + x2 * scale * persp;
+    const sy = cy - y2 * scale * persp;
+    return { sx, sy, depth: z2, x2, y2, z2 };
   }
 
-  function project(x, y, z) {
-    // Orthographic: +z toward camera after rotation
-    return {
-      sx: cx + x * globeR,
-      sy: cy - y * globeR,
-      depth: z, // >0 in front of center
-    };
+  function propagateAll(date) {
+    for (let i = 0; i < sats.length; i++) {
+      const s = sats[i];
+      try {
+        const pv = satellite.propagate(s.satrec, date);
+        if (!pv || !pv.position || pv.position.x == null) {
+          s.valid = false;
+          continue;
+        }
+        // ECI km → unit Earth radii
+        s.x = pv.position.x / EARTH_R;
+        s.y = pv.position.z / EARTH_R; // map ECI Z (north) → display Y
+        s.z = pv.position.y / EARTH_R;
+        if (pv.velocity) {
+          s.vx = pv.velocity.x;
+          s.vy = pv.velocity.y;
+          s.vz = pv.velocity.z;
+        }
+        s.valid = true;
+      } catch (_) {
+        s.valid = false;
+      }
+    }
   }
 
-  function dateFromMs(ms) {
-    return new Date(ms);
-  }
+  function drawStarfield(t) {
+    ctx.fillStyle = '#02040a';
+    ctx.fillRect(0, 0, W, H);
 
-  // ── Earth drawing ─────────────────────────────────────────
-  function drawBackground(t) {
-    // Deep space gradient
-    const g = ctx.createRadialGradient(cx, cy, globeR * 0.2, cx, cy, Math.max(W, H) * 0.75);
-    g.addColorStop(0, "#071018");
-    g.addColorStop(0.45, "#04080f");
-    g.addColorStop(1, "#010205");
+    // subtle radial vignette of deep blue
+    const g = ctx.createRadialGradient(W * 0.5, H * 0.48, 0, W * 0.5, H * 0.48, Math.max(W, H) * 0.72);
+    g.addColorStop(0, 'rgba(10, 22, 48, 0.55)');
+    g.addColorStop(0.55, 'rgba(4, 10, 24, 0.25)');
+    g.addColorStop(1, 'rgba(1, 2, 6, 0)');
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, H);
 
-    // Starfield
-    for (let i = 0; i < STARS.length; i++) {
-      const s = STARS[i];
-      const twinkle = 0.7 + 0.3 * Math.sin(t * 0.0012 + s.tw);
+    for (let i = 0; i < stars.length; i++) {
+      const s = stars[i];
+      const tw = 0.55 + 0.45 * Math.sin(t * 0.0011 + s.tw);
       ctx.beginPath();
-      ctx.fillStyle = `rgba(210, 230, 255, ${s.a * twinkle})`;
-      ctx.arc(s.x * W, s.y * H, s.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(210, 225, 255, ${s.a * tw})`;
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
       ctx.fill();
     }
   }
 
-  function drawAtmosphere() {
-    // Soft outer glow
-    const outer = ctx.createRadialGradient(cx, cy, globeR * 0.88, cx, cy, globeR * 1.28);
-    outer.addColorStop(0, "rgba(40, 140, 255, 0.0)");
-    outer.addColorStop(0.45, "rgba(50, 160, 255, 0.07)");
-    outer.addColorStop(0.75, "rgba(80, 190, 255, 0.14)");
-    outer.addColorStop(1, "rgba(40, 140, 255, 0)");
-    ctx.fillStyle = outer;
+  function drawEarth(cx, cy, R) {
+    // Soft atmospheric glow (outer rim)
+    const glow = ctx.createRadialGradient(cx, cy, R * 0.82, cx, cy, R * 1.22);
+    glow.addColorStop(0, 'rgba(60, 140, 255, 0)');
+    glow.addColorStop(0.55, 'rgba(40, 130, 255, 0.08)');
+    glow.addColorStop(0.78, 'rgba(80, 170, 255, 0.22)');
+    glow.addColorStop(0.92, 'rgba(140, 210, 255, 0.38)');
+    glow.addColorStop(1, 'rgba(180, 230, 255, 0)');
     ctx.beginPath();
-    ctx.arc(cx, cy, globeR * 1.28, 0, Math.PI * 2);
+    ctx.arc(cx, cy, R * 1.22, 0, Math.PI * 2);
+    ctx.fillStyle = glow;
     ctx.fill();
 
-    // Thin bright rim
-    const rim = ctx.createRadialGradient(cx, cy, globeR * 0.92, cx, cy, globeR * 1.06);
-    rim.addColorStop(0, "rgba(100, 200, 255, 0)");
-    rim.addColorStop(0.55, "rgba(90, 190, 255, 0.08)");
-    rim.addColorStop(0.85, "rgba(140, 220, 255, 0.35)");
-    rim.addColorStop(1, "rgba(180, 230, 255, 0)");
-    ctx.fillStyle = rim;
-    ctx.beginPath();
-    ctx.arc(cx, cy, globeR * 1.06, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  function drawEarth(ry) {
-    // Disc body
+    // Globe body
     const body = ctx.createRadialGradient(
-      cx - globeR * 0.35,
-      cy - globeR * 0.4,
-      globeR * 0.08,
-      cx,
-      cy,
-      globeR
+      cx - R * 0.35, cy - R * 0.4, R * 0.05,
+      cx, cy, R
     );
-    body.addColorStop(0, "#1a3a5c");
-    body.addColorStop(0.35, "#0c2240");
-    body.addColorStop(0.7, "#061428");
-    body.addColorStop(1, "#020810");
+    body.addColorStop(0, '#1a3a68');
+    body.addColorStop(0.35, '#0c2248');
+    body.addColorStop(0.7, '#061428');
+    body.addColorStop(1, '#020810');
     ctx.beginPath();
-    ctx.arc(cx, cy, globeR, 0, Math.PI * 2);
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
     ctx.fillStyle = body;
     ctx.fill();
 
-    // Soft terminator / limb darkening
-    const shade = ctx.createLinearGradient(cx - globeR, cy, cx + globeR, cy);
-    const phase = ((ry % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-    // subtle lighting shift with rotation
-    shade.addColorStop(0, "rgba(0,0,0,0.55)");
-    shade.addColorStop(0.4, "rgba(0,0,0,0.15)");
-    shade.addColorStop(0.65, "rgba(20,60,100,0.05)");
-    shade.addColorStop(1, "rgba(0,0,0,0.45)");
+    // Subtle lat/lon grid (rotated with globe)
+    ctx.save();
     ctx.beginPath();
-    ctx.arc(cx, cy, globeR, 0, Math.PI * 2);
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.clip();
+
+    ctx.strokeStyle = 'rgba(90, 160, 220, 0.085)';
+    ctx.lineWidth = 1;
+
+    // Parallels
+    for (let lat = -60; lat <= 60; lat += 30) {
+      ctx.beginPath();
+      let first = true;
+      for (let lon = 0; lon <= 360; lon += 6) {
+        const la = (lat * Math.PI) / 180;
+        const lo = (lon * Math.PI) / 180;
+        const ex = Math.cos(la) * Math.sin(lo);
+        const ey = Math.sin(la);
+        const ez = Math.cos(la) * Math.cos(lo);
+        const p = project(ex, ey, ez, R, cx, cy);
+        if (p.depth < -0.02) { first = true; continue; }
+        if (first) { ctx.moveTo(p.sx, p.sy); first = false; }
+        else ctx.lineTo(p.sx, p.sy);
+      }
+      ctx.stroke();
+    }
+
+    // Meridians
+    for (let lon = 0; lon < 360; lon += 30) {
+      ctx.beginPath();
+      let first = true;
+      for (let lat = -90; lat <= 90; lat += 4) {
+        const la = (lat * Math.PI) / 180;
+        const lo = (lon * Math.PI) / 180;
+        const ex = Math.cos(la) * Math.sin(lo);
+        const ey = Math.sin(la);
+        const ez = Math.cos(la) * Math.cos(lo);
+        const p = project(ex, ey, ez, R, cx, cy);
+        if (p.depth < -0.02) { first = true; continue; }
+        if (first) { ctx.moveTo(p.sx, p.sy); first = false; }
+        else ctx.lineTo(p.sx, p.sy);
+      }
+      ctx.stroke();
+    }
+
+    // Soft terminator / limb shading
+    const shade = ctx.createRadialGradient(
+      cx + R * 0.25, cy - R * 0.1, R * 0.2,
+      cx, cy, R
+    );
+    shade.addColorStop(0, 'rgba(0,0,0,0)');
+    shade.addColorStop(0.65, 'rgba(0,0,0,0.08)');
+    shade.addColorStop(1, 'rgba(0,0,0,0.45)');
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
     ctx.fillStyle = shade;
     ctx.fill();
 
-    // Stylized latitude lines
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(cx, cy, globeR, 0, Math.PI * 2);
-    ctx.clip();
-
-    ctx.strokeStyle = "rgba(80, 160, 220, 0.09)";
-    ctx.lineWidth = 1;
-
-    // Latitude bands (ellipses after tilt)
-    for (let lat = -60; lat <= 60; lat += 30) {
-      const y = Math.sin((lat * Math.PI) / 180);
-      const r = Math.cos((lat * Math.PI) / 180);
-      // After tilt, approximate ellipse
-      const pts = 64;
-      ctx.beginPath();
-      for (let i = 0; i <= pts; i++) {
-        const lon = (i / pts) * Math.PI * 2 + ry;
-        const x0 = Math.cos(lon) * r;
-        const z0 = Math.sin(lon) * r;
-        const p = rotatePoint(x0, y, z0, 0, TILT);
-        // only draw front-ish for subtlety, but full ellipse is fine clipped
-        const pr = project(p.x, p.y, p.z);
-        if (i === 0) ctx.moveTo(pr.sx, pr.sy);
-        else ctx.lineTo(pr.sx, pr.sy);
-      }
-      ctx.stroke();
-    }
-
-    // Longitude meridians
-    ctx.strokeStyle = "rgba(70, 150, 210, 0.07)";
-    for (let lon0 = 0; lon0 < 360; lon0 += 30) {
-      const lonBase = (lon0 * Math.PI) / 180 + ry;
-      ctx.beginPath();
-      let started = false;
-      for (let lat = -90; lat <= 90; lat += 4) {
-        const la = (lat * Math.PI) / 180;
-        const x0 = Math.cos(lonBase) * Math.cos(la);
-        const y0 = Math.sin(la);
-        const z0 = Math.sin(lonBase) * Math.cos(la);
-        const p = rotatePoint(x0, y0, z0, 0, TILT);
-        const pr = project(p.x, p.y, p.z);
-        if (p.z < -0.05) {
-          started = false;
-          continue;
-        }
-        if (!started) {
-          ctx.moveTo(pr.sx, pr.sy);
-          started = true;
-        } else {
-          ctx.lineTo(pr.sx, pr.sy);
-        }
-      }
-      ctx.stroke();
-    }
-
-    // Faint continent-like noise blobs (abstract, not real geography)
-    ctx.globalCompositeOperation = "lighter";
-    for (let i = 0; i < 18; i++) {
-      const lon = ((i * 47.3) % 360) * Math.PI / 180 + ry * 0.15;
-      const lat = (((i * 31.7) % 140) - 70) * Math.PI / 180;
-      const x0 = Math.cos(lon) * Math.cos(lat);
-      const y0 = Math.sin(lat);
-      const z0 = Math.sin(lon) * Math.cos(lat);
-      const p = rotatePoint(x0, y0, z0, 0, TILT);
-      if (p.z < 0.15) continue;
-      const pr = project(p.x, p.y, p.z);
-      const alpha = 0.04 + 0.06 * p.z;
-      const rg = ctx.createRadialGradient(pr.sx, pr.sy, 0, pr.sx, pr.sy, globeR * (0.12 + (i % 5) * 0.03));
-      rg.addColorStop(0, `rgba(60, 160, 120, ${alpha})`);
-      rg.addColorStop(1, "rgba(40, 100, 80, 0)");
-      ctx.fillStyle = rg;
-      ctx.beginPath();
-      ctx.arc(pr.sx, pr.sy, globeR * (0.12 + (i % 5) * 0.03), 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.globalCompositeOperation = "source-over";
-
     ctx.restore();
 
-    // Crisp limb edge
+    // Crisp atmospheric rim stroke
+    const rim = ctx.createRadialGradient(cx, cy, R * 0.94, cx, cy, R * 1.02);
+    // Draw ring as stroke with glow
     ctx.beginPath();
-    ctx.arc(cx, cy, globeR, 0, Math.PI * 2);
-    ctx.strokeStyle = "rgba(100, 190, 255, 0.22)";
-    ctx.lineWidth = 1.25;
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(120, 200, 255, 0.35)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, cy, R + 1.5, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(160, 220, 255, 0.18)';
+    ctx.lineWidth = 4;
     ctx.stroke();
   }
 
-  // ── Satellites ────────────────────────────────────────────
-  function computePositions(date) {
-    screenSats = [];
-    const out = [];
+  function drawSats(cx, cy, R) {
+    // Sort by depth back→front for correct additive look
+    const order = [];
     for (let i = 0; i < sats.length; i++) {
-      const sat = sats[i];
-      let pv;
-      try {
-        pv = satellite.propagate(sat.satrec, date);
-      } catch (_) {
+      const s = sats[i];
+      if (!s.valid) {
+        s.visible = false;
         continue;
       }
-      if (!pv || !pv.position || pv.position.x == null) continue;
-      const { x, y, z } = pv.position;
-      if (!isFinite(x) || !isFinite(y) || !isFinite(z)) continue;
-
-      // Normalize by Earth radius → unit-ish orbital coords
-      const nx = x / EARTH_RADIUS_KM;
-      const ny = y / EARTH_RADIUS_KM;
-      const nz = z / EARTH_RADIUS_KM;
-
-      // Apply globe rotation + tilt so sats stay locked to Earth frame visually
-      const p = rotatePoint(nx, ny, nz, rotY, TILT);
-
-      // Occlusion: hide if behind the globe disc
-      // A point is behind Earth if its projected radius < 1 and z < 0 (far side),
-      // more precisely: if z < 0 and x²+y² < 1 - (something)...
-      // Standard: ray from camera (orthographic +z): occluded if z < 0 and
-      // radial distance in xy of the unit sphere intersection would hide it —
-      // for orthographic, satellite is occluded when the unit sphere blocks:
-      // if hypot(p.x, p.y) < 1 and p.z < Math.sqrt(1 - x² - y²) wait:
-      // Earth is unit sphere. Point is occluded if p.z < 0 and p.x²+p.y² < 1
-      // BUT only if it's actually behind the front surface — for points with
-      // radial distance from origin R = |p|, if the line-of-sight hits the sphere.
-      // Orthographic from +z: occluded when p.z < 0 and p.x² + p.y² < 1.
-      const r2xy = p.x * p.x + p.y * p.y;
-      if (p.z < 0 && r2xy < 1) continue; // behind globe
-
-      const pr = project(p.x, p.y, p.z);
-      // Depth for shading: higher z = closer to camera = brighter
-      // Normalize roughly for LEO: z ranges ~-1.1 to 1.1
-      const depth = (p.z + 1.2) / 2.4; // 0..1-ish
-      out.push({
-        i,
-        sx: pr.sx,
-        sy: pr.sy,
-        z: p.z,
-        depth: Math.max(0, Math.min(1, depth)),
-        eci: { x, y, z },
-        vel: pv.velocity,
-      });
+      const p = project(s.x, s.y, s.z, R, cx, cy);
+      s.sx = p.sx;
+      s.sy = p.sy;
+      s.depth = p.depth;
+      // Occlusion: hide if behind the globe (ray from camera hits sphere first)
+      // Globe is unit sphere in same coords; sat at radius r, depth z2
+      const r = Math.sqrt(s.x * s.x + s.y * s.y + s.z * s.z);
+      // Visible if in front of the sphere limb: if z2 is negative (behind), check if
+      // projected radius is outside the Earth disk, or simply z2 > 0 after rotation
+      // Better: hide when behind Earth surface along view axis
+      // View looks toward -Z after rotation... our depth is z2 (positive = toward camera-ish)
+      // After project, larger depth = closer to viewer (front)
+      // Occluded if behind globe: depth < 0 and inside the silhouette of the unit sphere
+      const radial2d = Math.hypot(p.x2, p.y2);
+      const behind = p.depth < 0;
+      const insideDisk = radial2d < 1.0 * Math.sqrt(Math.max(0, 1 - 0.0001));
+      // More accurate: if sat is behind the front hemisphere of the unit sphere
+      // hide when the line of sight intersects unit sphere before the sat.
+      // Orthographic-ish: if depth < 0 and hypot(x2,y2) < sqrt(1 - depth^2) for depth on sphere...
+      // Simple reliable: hide when behind and projected inside earth radius (in screen units relative)
+      const earthScreenR = R; // scale already applied via project
+      const distFromCenter = Math.hypot(p.sx - cx, p.sy - cy);
+      // For points with depth < 0 (back half of view), occlude if inside Earth disk
+      // Also occlude if sat is below Earth surface and on far side
+      const underHorizon = behind && distFromCenter < R * 0.995;
+      s.visible = !underHorizon && r > 0.95;
+      if (s.visible) order.push(i);
     }
-    // Painter's algorithm: far first
-    out.sort((a, b) => a.z - b.z);
-    screenSats = out;
-    return out;
-  }
 
-  function drawSats(list, highlightIdx) {
+    order.sort((a, b) => sats[a].depth - sats[b].depth);
+
     ctx.save();
-    ctx.globalCompositeOperation = "lighter";
+    ctx.globalCompositeOperation = 'lighter';
 
-    for (let k = 0; k < list.length; k++) {
-      const s = list[k];
-      const d = s.depth;
-      const isHi = s.i === highlightIdx;
+    for (let k = 0; k < order.length; k++) {
+      const s = sats[order[k]];
+      // Depth shade: front brighter
+      const dNorm = (s.depth + 1.4) / 2.8; // ~0..1
+      const bright = 0.28 + 0.72 * Math.max(0, Math.min(1, dNorm));
+      const size = 0.7 + 1.1 * bright;
 
-      // Size & brightness by depth
-      const r = isHi ? 3.2 : 0.9 + d * 1.4;
-      const a = isHi ? 1 : 0.25 + d * 0.75;
-      const core = isHi ? 1 : 0.55 + d * 0.45;
-
-      // Soft glow
-      const glowR = r * (isHi ? 5 : 3.5);
-      const gg = ctx.createRadialGradient(s.sx, s.sy, 0, s.sx, s.sy, glowR);
-      gg.addColorStop(0, `rgba(180, 245, 255, ${a * 0.55})`);
-      gg.addColorStop(0.35, `rgba(80, 200, 255, ${a * 0.22})`);
-      gg.addColorStop(1, "rgba(40, 140, 255, 0)");
-      ctx.fillStyle = gg;
+      // soft glow
+      const gr = ctx.createRadialGradient(s.sx, s.sy, 0, s.sx, s.sy, size * 3.2);
+      gr.addColorStop(0, `rgba(200, 245, 255, ${0.55 * bright})`);
+      gr.addColorStop(0.35, `rgba(100, 210, 255, ${0.28 * bright})`);
+      gr.addColorStop(1, 'rgba(40, 140, 255, 0)');
       ctx.beginPath();
-      ctx.arc(s.sx, s.sy, glowR, 0, Math.PI * 2);
+      ctx.fillStyle = gr;
+      ctx.arc(s.sx, s.sy, size * 3.2, 0, Math.PI * 2);
       ctx.fill();
 
-      // Core dot
+      // core
       ctx.beginPath();
-      ctx.fillStyle = `rgba(230, 250, 255, ${core})`;
-      ctx.arc(s.sx, s.sy, r * 0.55, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(235, 250, 255, ${0.75 * bright + 0.15})`;
+      ctx.arc(s.sx, s.sy, size * 0.55, 0, Math.PI * 2);
       ctx.fill();
-    }
-
-    ctx.globalCompositeOperation = "source-over";
-
-    // Highlight ring (not additive)
-    if (highlightIdx >= 0) {
-      for (let k = 0; k < list.length; k++) {
-        if (list[k].i !== highlightIdx) continue;
-        const s = list[k];
-        ctx.beginPath();
-        ctx.strokeStyle = "rgba(160, 240, 255, 0.95)";
-        ctx.lineWidth = 1.5;
-        ctx.arc(s.sx, s.sy, 8, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.strokeStyle = "rgba(100, 200, 255, 0.35)";
-        ctx.lineWidth = 1;
-        ctx.arc(s.sx, s.sy, 12, 0, Math.PI * 2);
-        ctx.stroke();
-        break;
-      }
     }
 
     ctx.restore();
+
+    // Highlight ring for hover (while frozen)
+    if (frozen && hoverIdx >= 0) {
+      const s = sats[hoverIdx];
+      if (s && s.visible) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.beginPath();
+        ctx.arc(s.sx, s.sy, 9, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(160, 230, 255, 0.9)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(s.sx, s.sy, 14, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(100, 200, 255, 0.35)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        // bright core pulse
+        ctx.beginPath();
+        ctx.fillStyle = 'rgba(220, 250, 255, 0.95)';
+        ctx.arc(s.sx, s.sy, 2.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
   }
 
-  // ── Tooltip / details ─────────────────────────────────────
   function findHover() {
-    if (!frozen || !mouseIn) return -1;
-    const hitR2 = HIT_RADIUS_PX * HIT_RADIUS_PX;
+    if (!frozen) return -1;
     let best = -1;
-    let bestD = hitR2;
-    let bestZ = -Infinity;
-    for (let k = 0; k < screenSats.length; k++) {
-      const s = screenSats[k];
+    let bestD = 14; // px hit radius
+    for (let i = 0; i < sats.length; i++) {
+      const s = sats[i];
+      if (!s.visible || !s.valid) continue;
       const dx = s.sx - mouseX;
       const dy = s.sy - mouseY;
-      const d2 = dx * dx + dy * dy;
-      if (d2 > hitR2) continue;
-      // Prefer front-most satellite within hit radius; break ties by closeness
-      if (s.z > bestZ || (s.z === bestZ && d2 < bestD)) {
-        best = s.i;
-        bestD = d2;
-        bestZ = s.z;
+      const d = Math.hypot(dx, dy);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
       }
     }
     return best;
   }
 
-  function formatTooltip(sat, screenEntry, date) {
-    const rec = sat.satrec;
-    const name = sat.name || "UNKNOWN";
-    const norad = rec.satnum != null ? String(rec.satnum) : "—";
+  function fmt(n, d) {
+    if (!isFinite(n)) return '—';
+    return n.toFixed(d);
+  }
 
-    let alt = "—", speed = "—", lat = "—", lon = "—";
+  function updateTooltip() {
+    if (!frozen || hoverIdx < 0) {
+      tooltip.style.display = 'none';
+      return;
+    }
+    const s = sats[hoverIdx];
+    if (!s || !s.valid) {
+      tooltip.style.display = 'none';
+      return;
+    }
+
+    const date = new Date(simTime);
+    let lat = '—', lon = '—', alt = '—', speed = '—';
     try {
-      const pos = screenEntry.eci;
-      const vel = screenEntry.vel;
-      if (pos && isFinite(pos.x)) {
-        const r = Math.sqrt(pos.x * pos.x + pos.y * pos.y + pos.z * pos.z);
-        alt = (r - EARTH_RADIUS_KM).toFixed(1);
-      }
-      if (vel && isFinite(vel.x)) {
-        const v = Math.sqrt(vel.x * vel.x + vel.y * vel.y + vel.z * vel.z);
-        speed = v.toFixed(3);
-      }
-      if (pos && isFinite(pos.x)) {
+      // Rebuild ECI position in original axes for geodetic
+      const pv = satellite.propagate(s.satrec, date);
+      if (pv && pv.position) {
         const gmst = satellite.gstime(date);
-        const gd = satellite.eciToGeodetic(pos, gmst);
-        lat = satellite.degreesLat(gd.latitude).toFixed(3) + "°";
-        lon = satellite.degreesLong(gd.longitude).toFixed(3) + "°";
-        if (isFinite(gd.height)) alt = gd.height.toFixed(1);
+        const geo = satellite.eciToGeodetic(pv.position, gmst);
+        lat = satellite.degreesLat(geo.latitude);
+        lon = satellite.degreesLong(geo.longitude);
+        alt = geo.height;
+        if (pv.velocity) {
+          const v = pv.velocity;
+          speed = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+        } else {
+          const r = Math.sqrt(
+            pv.position.x ** 2 + pv.position.y ** 2 + pv.position.z ** 2
+          );
+          speed = Math.sqrt(MU / r);
+        }
       }
     } catch (_) { /* keep dashes */ }
 
-    return (
-      `<div class="name">${escapeHtml(name)}</div>` +
-      `<div class="row"><span class="label">NORAD</span><span class="val">${escapeHtml(norad)}</span></div>` +
-      `<div class="row"><span class="label">Altitude</span><span class="val">${alt} km</span></div>` +
-      `<div class="row"><span class="label">Speed</span><span class="val">${speed} km/s</span></div>` +
-      `<div class="row"><span class="label">Latitude</span><span class="val">${lat}</span></div>` +
-      `<div class="row"><span class="label">Longitude</span><span class="val">${lon}</span></div>`
-    );
+    const norad = (s.satrec.satnum != null ? String(s.satrec.satnum) : '—').trim();
+
+    tooltip.innerHTML =
+      `<div class="name">${escapeHtml(s.name)}</div>` +
+      row('NORAD', norad) +
+      row('Launch', s.launch) +
+      row('Status', s.status) +
+      row('Launch site', s.site) +
+      row('Altitude', typeof alt === 'number' ? fmt(alt, 1) + ' km' : alt, true) +
+      row('Speed', typeof speed === 'number' ? fmt(speed, 3) + ' km/s' : speed, true) +
+      row('Latitude', typeof lat === 'number' ? fmt(lat, 3) + '°' : lat) +
+      row('Longitude', typeof lon === 'number' ? fmt(lon, 3) + '°' : lon);
+
+    // Position near cursor, keep on screen
+    let tx = mouseX + 14;
+    let ty = mouseY + 14;
+    tooltip.style.display = 'block';
+    // measure after display
+    const tw = tooltip.offsetWidth || 260;
+    const th = tooltip.offsetHeight || 200;
+    if (tx + tw > W - 10) tx = mouseX - tw - 14;
+    if (ty + th > H - 10) ty = mouseY - th - 10;
+    if (tx < 8) tx = 8;
+    if (ty < 8) ty = 8;
+    tooltip.style.left = tx + 'px';
+    tooltip.style.top = ty + 'px';
+    tooltip.style.transform = 'none';
+  }
+
+  function row(label, value, accent) {
+    return `<div class="row"><span class="label">${label}</span><span class="value${accent ? ' accent' : ''}">${escapeHtml(String(value))}</span></div>`;
   }
 
   function escapeHtml(str) {
     return String(str)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 
-  function placeTooltip(html) {
-    tooltip.innerHTML = html;
-    tooltip.classList.add("visible");
-    // Keep on screen
-    const pad = 12;
-    let x = mouseX + 14;
-    let y = mouseY + 14;
-    // measure after paint
-    const tw = tooltip.offsetWidth || 220;
-    const th = tooltip.offsetHeight || 140;
-    if (x + tw + pad > W) x = mouseX - tw - 14;
-    if (y + th + pad > H) y = mouseY - th - 14;
-    if (x < pad) x = pad;
-    if (y < pad) y = pad;
-    tooltip.style.left = x + "px";
-    tooltip.style.top = y + "px";
-  }
+  let lastProp = 0;
+  const PROP_INTERVAL = 50; // ms between SGP4 updates when animating
 
-  function hideTooltip() {
-    tooltip.classList.remove("visible");
-  }
-
-  // ── Main loop ─────────────────────────────────────────────
   function frame(now) {
-    const dt = Math.min(0.05, (now - lastFrame) / 1000);
-    lastFrame = now;
+    const dt = Math.min(64, now - lastWall);
+    lastWall = now;
 
     if (!frozen) {
-      simTime += dt * TIME_SCALE * 1000;
-      rotY += ROTATE_SPEED * dt;
-    }
-
-    const date = dateFromMs(simTime);
-
-    drawBackground(now);
-    drawAtmosphere();
-    drawEarth(rotY);
-
-    const list = computePositions(date);
-
-    let hi = -1;
-    if (frozen && mouseIn) {
-      hi = findHover();
-    }
-
-    drawSats(list, hi);
-
-    // Soft vignette
-    const vig = ctx.createRadialGradient(cx, cy, globeR * 0.9, cx, cy, Math.max(W, H) * 0.72);
-    vig.addColorStop(0, "rgba(0,0,0,0)");
-    vig.addColorStop(1, "rgba(0,0,0,0.45)");
-    ctx.fillStyle = vig;
-    ctx.fillRect(0, 0, W, H);
-
-    // Tooltip
-    if (hi >= 0) {
-      const entry = list.find((s) => s.i === hi);
-      placeTooltip(formatTooltip(sats[hi], entry, date));
+      rotY += autoRot * dt;
+      simTime += dt * timeScale;
+      if (now - lastProp > PROP_INTERVAL) {
+        propagateAll(new Date(simTime));
+        lastProp = now;
+      }
+      statusEl.textContent = 'live · move mouse to freeze';
     } else {
-      hideTooltip();
+      statusEl.textContent = 'frozen · hover a satellite';
+      hoverIdx = findHover();
+      updateTooltip();
     }
+
+    if (!frozen) {
+      hoverIdx = -1;
+      tooltip.style.display = 'none';
+    }
+
+    const cx = W * 0.5;
+    const cy = H * 0.5;
+    const R = Math.min(W, H) * 0.32;
+
+    drawStarfield(now);
+    drawEarth(cx, cy, R);
+    drawSats(cx, cy, R);
 
     requestAnimationFrame(frame);
   }
 
-  // ── Interaction ───────────────────────────────────────────
-  function onPointerMove(e) {
+  // Interaction: freeze while pointer is over the visualization
+  function onMove(e) {
     mouseX = e.clientX;
     mouseY = e.clientY;
-    if (!mouseIn) {
-      mouseIn = true;
-    }
-    // Freeze as soon as mouse is anywhere over the visualization
     if (!frozen) {
       frozen = true;
-      hudSub.innerHTML = '<span class="frozen">frozen · hover a satellite</span>';
+      // ensure positions are current at freeze moment
+      propagateAll(new Date(simTime));
+    }
+    if (frozen) {
+      hoverIdx = findHover();
+      updateTooltip();
     }
   }
 
-  function onPointerLeave() {
-    mouseIn = false;
+  function onLeave() {
     frozen = false;
-    mouseX = -1e9;
-    mouseY = -1e9;
-    hideTooltip();
-    hudSub.textContent = "live orbital positions · SGP4";
+    hoverIdx = -1;
+    mouseX = -9999;
+    mouseY = -9999;
+    tooltip.style.display = 'none';
   }
 
-  // Track window leave/enter robustly
-  window.addEventListener("mousemove", onPointerMove, { passive: true });
-  window.addEventListener("pointermove", onPointerMove, { passive: true });
-  document.addEventListener("mouseleave", onPointerLeave);
-  window.addEventListener("blur", onPointerLeave);
-  // Also when pointer leaves the document element
-  document.documentElement.addEventListener("mouseleave", onPointerLeave);
+  window.addEventListener('resize', resize);
+  window.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseleave', onLeave);
+  canvas.addEventListener('mouseleave', onLeave);
+  // Also treat leaving the window
+  window.addEventListener('blur', onLeave);
 
-  window.addEventListener("resize", resize);
-
-  // Boot
-  seedStars();
-  initSats();
   resize();
-  hudSub.textContent = sats.length.toLocaleString() + " satellites · SGP4";
+  initSats();
+  propagateAll(new Date(simTime));
+  lastWall = performance.now();
   requestAnimationFrame(frame);
 })();
   </script>

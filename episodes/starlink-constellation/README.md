@@ -1,4 +1,4 @@
-# Starlink Constellation — Grok Build (freeze + hover, real SGP4 data)
+# Starlink Constellation — Grok Build (launch data + freeze + hover)
 
 Built live and autonomously by **Claude Code** on the YouTube channel.
 
