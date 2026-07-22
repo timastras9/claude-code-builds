@@ -1,0 +1,195 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Pendulum Wave Clock</title>
+<style>
+  html,body{margin:0;height:100%;background:#03040a;overflow:hidden;}
+  canvas{display:block;width:100vw;height:100vh;}
+</style>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d', { alpha: false });
+
+// ---- model -------------------------------------------------------------
+// Pendulum i completes exactly (BASE + i) swings per minute, so every
+// pendulum returns to the same phase at the top of each minute.
+const N = 60;              // number of pendulums
+const BASE = 80;           // swings per minute of the longest pendulum
+const AMP = 0.46;          // max angular deflection (radians)
+const TRAIL = 26;          // trail samples per bob
+
+const P = [];              // per-pendulum state
+for (let i = 0; i < N; i++) {
+  // STEP=3 swings/min between neighbours means the whole array returns to sync
+  // every 60/3 = 20s instead of 60s — one full wave cycle inside a Short, so the
+  // captured loop is seamless. 20 divides 60, so it still re-syncs exactly on
+  // the minute and stays honest as a clock.
+  const swings = BASE + 3 * i;
+  const u = i / (N - 1);
+  P.push({
+    w: 2 * Math.PI * swings / 60,        // angular frequency (rad/s)
+    lrel: Math.pow(BASE / swings, 2),    // length ∝ 1/f²  (real physics)
+    u,
+    hue: 188 + u * 148,                  // cyan → violet → magenta
+    sprite: null,
+    trail: []
+  });
+}
+
+// ---- glow sprites (pre-rendered, one per hue) --------------------------
+const SPR = 96;
+function makeSprite(hue) {
+  const s = document.createElement('canvas');
+  s.width = s.height = SPR;
+  const g = s.getContext('2d');
+  const r = SPR / 2;
+  const grd = g.createRadialGradient(r, r, 0, r, r, r);
+  grd.addColorStop(0.00, `hsla(${hue},100%,96%,1)`);
+  grd.addColorStop(0.10, `hsla(${hue},100%,78%,0.95)`);
+  grd.addColorStop(0.26, `hsla(${hue},95%,60%,0.42)`);
+  grd.addColorStop(0.55, `hsla(${hue},90%,52%,0.10)`);
+  grd.addColorStop(1.00, `hsla(${hue},90%,50%,0)`);
+  g.fillStyle = grd;
+  g.fillRect(0, 0, SPR, SPR);
+  return s;
+}
+for (const p of P) p.sprite = makeSprite(p.hue);
+
+// ---- layout ------------------------------------------------------------
+let W = 0, H = 0, DPR = 1;
+let pivotY = 0, pivotDrop = 0, Lmax = 0, x0 = 0, dx = 0, bobR = 0, focal = 1;
+
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  const rowW = W * 0.78;
+  x0 = (W - rowW) / 2;
+  dx = rowW / (N - 1);
+  pivotY = H * 0.05;
+  pivotDrop = H * 0.40;      // anchor rail slopes down to the right so the
+  Lmax = H * 0.60;           // short, fast end of the row fills the frame too
+  bobR = Math.max(2.6, Math.min(dx * 0.62, H * 0.011));
+  focal = Math.max(W, H) * 1.1;
+  for (const p of P) p.trail.length = 0;
+}
+addEventListener('resize', resize);
+resize();
+
+// ---- projection --------------------------------------------------------
+// Swing plane is perpendicular to the screen; an oblique projection turns
+// depth into screen offset so the travelling wave reads as a woven ribbon.
+const OX = 0.17, OY = 0.46;
+
+function project(p, theta) {
+  // Drawn length is foreshortened (lrel^0.75) — still strictly ordered by
+  // period, but it keeps the short end of the row from collapsing into a
+  // stub against the top of the frame.
+  const L = Lmax * Math.pow(p.lrel, 0.70);
+  const z = L * Math.sin(theta);            // depth, + = toward viewer
+  const scale = focal / (focal - z * 0.85);
+  return {
+    px: x0 + p.i * dx,
+    x: p.pxc + z * OX,
+    y: p.pyc + L * Math.cos(theta) + z * OY,
+    s: scale
+  };
+}
+P.forEach((p, i) => { p.i = i; });
+
+// ---- render ------------------------------------------------------------
+function frame() {
+  const now = new Date();
+  const t = now.getSeconds() + now.getMilliseconds() / 1000;   // 0..60
+
+  // brief bloom as the whole row snaps back into sync on the minute
+  const d = Math.min(t, 60 - t);
+  const sync = Math.exp(-(d * d) / 0.9);
+
+  // background — fully repainted every frame, so trails can never smear
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#04060f');
+  bg.addColorStop(0.55, '#03040a');
+  bg.addColorStop(1, '#010206');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // pivot rail
+  ctx.strokeStyle = 'rgba(150,180,255,0.10)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x0 - dx, pivotY - pivotDrop / (N - 1));
+  ctx.lineTo(x0 + N * dx, pivotY + pivotDrop * (1 + 1 / (N - 1)));
+  ctx.stroke();
+
+  // positions — the tail is evaluated from the closed-form motion at
+  // t - k·dt, so it is exact and identical at any frame rate.
+  for (const p of P) {
+    p.pxc = x0 + p.i * dx;
+    p.pyc = pivotY + p.u * pivotDrop;
+    const dt = (2 * Math.PI / p.w) * 0.0040;   // ~10% of this pendulum's period
+    p.trail.length = 0;
+    for (let k = 0; k < TRAIL; k++) {
+      p.trail.push(project(p, AMP * Math.cos(p.w * (t - k * dt))));
+    }
+    p.cur = p.trail[0];
+  }
+
+  // strings
+  ctx.lineWidth = 1;
+  for (const p of P) {
+    ctx.strokeStyle = `hsla(${p.hue},80%,70%,0.10)`;
+    ctx.beginPath();
+    ctx.moveTo(p.pxc, p.pyc);
+    ctx.lineTo(p.cur.x, p.cur.y);
+    ctx.stroke();
+  }
+
+  // trails + bobs, additively blended
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (const p of P) {
+    const tr = p.trail;
+    // comet streak: a wide soft halo under a narrow bright core
+    ctx.globalAlpha = 1;
+    for (let k = 1; k < tr.length; k++) {
+      const a = tr[k - 1], b = tr[k];
+      const f = 1 - k / tr.length;
+      ctx.strokeStyle = `hsla(${p.hue},95%,58%,${0.10 * f * f})`;
+      ctx.lineWidth = bobR * b.s * (0.8 + 4.2 * f);
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      ctx.strokeStyle = `hsla(${p.hue},100%,76%,${0.40 * f * f})`;
+      ctx.lineWidth = bobR * b.s * (0.25 + 0.95 * f);
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    }
+    const q = tr[0];
+    const r = bobR * q.s * 7.0;
+    ctx.globalAlpha = Math.min(1, (0.52 + 0.35 * sync) * q.s);
+    ctx.drawImage(p.sprite, q.x - r, q.y - r, r * 2, r * 2);
+    // hot core
+    ctx.globalAlpha = Math.min(1, 0.85 * q.s);
+    ctx.fillStyle = `hsla(${p.hue},100%,${88 + 8 * sync}%,1)`;
+    ctx.beginPath();
+    ctx.arc(q.x, q.y, bobR * q.s * 0.55, 0, 6.2832);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+
+  // the time
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  const ss = String(now.getSeconds()).padStart(2, '0');
+  ctx.font = `300 ${Math.max(13, Math.min(W * 0.036, 26))}px ui-monospace,SFMono-Regular,Menlo,monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = `rgba(200,220,255,${0.26 + 0.20 * sync})`;
+  ctx.fillText(`${hh} ${mm} ${ss}`, W / 2, H - Math.max(28, H * 0.045));
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
