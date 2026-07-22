@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Dusk Flock</title>
+<style>
+  html,body{margin:0;height:100%;background:#0a0713;overflow:hidden}
+  canvas{display:block;width:100vw;height:100vh}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d', { alpha: false });
+
+  let W = 0, H = 0, DPR = 1;
+
+  // --- dusk palette ---------------------------------------------------------
+  // Deep indigo overhead falling to a warm ember band at the horizon.
+  const SKY = [
+    [0.00, '#080615'],
+    [0.42, '#191033'],
+    [0.68, '#3b1c44'],
+    [0.85, '#7d2f42'],
+    [0.95, '#c25a3c'],
+    [1.00, '#e89257']
+  ];
+  // Tinted by altitude so birds never sink into the sky behind them: warm and
+  // lit against the dark overhead, dark silhouettes against the ember band.
+  const PLUMAGE = [
+    [232, 178, 120],
+    [214, 126, 92],
+    [150, 92, 118],
+    [92, 70, 122],
+    [46, 36, 74]
+  ];
+
+  let skyGradient = null;
+
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = canvas.clientWidth;
+    H = canvas.clientHeight;
+    canvas.width = Math.round(W * DPR);
+    canvas.height = Math.round(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+    skyGradient = ctx.createLinearGradient(0, 0, 0, H);
+    for (const [stop, col] of SKY) skyGradient.addColorStop(stop, col);
+    ctx.fillStyle = skyGradient;
+    ctx.fillRect(0, 0, W, H);
+
+    grid.resize();
+  }
+
+  // --- flock tuning ---------------------------------------------------------
+  const CFG = {
+    count: 0,                 // derived from viewport area
+    maxSpeed: 118,            // px/s
+    minSpeed: 62,
+    maxForce: 190,            // px/s^2 steering cap
+    perception: 74,           // neighbour radius for align + cohere
+    separation: 15,           // personal space
+    // Cohesion has to clearly beat separation at range or the flock behaves
+    // like a gas: evenly spread, never clustering into a murmuration.
+    wSeparation: 1.45,
+    wAlignment: 1.30,
+    wCohesion: 1.25,
+    wWander: 0.16,
+    trailFade: 0.24           // per-frame veil of sky repainted over the canvas
+                              // (0.055 never fully cleared: trails compounded
+                              //  into a smear a few seconds in)
+  };
+
+  // --- spatial hash ---------------------------------------------------------
+  // Neighbour lookups are the only O(n^2) risk with hundreds of birds; bucket
+  // them at the perception radius so each query touches a 3x3 cell window.
+  const grid = {
+    cell: CFG.perception,
+    cols: 0, rows: 0,
+    heads: null,   // first boid index per cell, -1 = empty
+    next: null,    // singly-linked chain of boid indices
+    resize() {
+      this.cols = Math.max(1, Math.ceil(W / this.cell));
+      this.rows = Math.max(1, Math.ceil(H / this.cell));
+      this.heads = new Int32Array(this.cols * this.rows);
+    },
+    build(boids) {
+      if (!this.next || this.next.length !== boids.length) {
+        this.next = new Int32Array(boids.length);
+      }
+      this.heads.fill(-1);
+      for (let i = 0; i < boids.length; i++) {
+        const b = boids[i];
+        let cx = (b.x / this.cell) | 0, cy = (b.y / this.cell) | 0;
+        if (cx < 0) cx = 0; else if (cx >= this.cols) cx = this.cols - 1;
+        if (cy < 0) cy = 0; else if (cy >= this.rows) cy = this.rows - 1;
+        const c = cy * this.cols + cx;
+        this.next[i] = this.heads[c];
+        this.heads[c] = i;
+      }
+    }
+  };
+
+  // --- boids ----------------------------------------------------------------
+  class Boid {
+    constructor() {
+      this.x = Math.random() * W;
+      this.y = Math.random() * H;
+      const a = Math.random() * Math.PI * 2;
+      const s = CFG.minSpeed + Math.random() * (CFG.maxSpeed - CFG.minSpeed);
+      this.vx = Math.cos(a) * s;
+      this.vy = Math.sin(a) * s;
+      this.wander = Math.random() * Math.PI * 2;
+      this.flap = Math.random() * Math.PI * 2;
+      this.size = 3.1 + Math.random() * 2.4;
+    }
+  }
+
+  let boids = [];
+
+  function populate() {
+    // Roughly one bird per 3.4k px^2, clamped so phones stay smooth and big
+    // displays still read as a crowded sky.
+    CFG.count = Math.max(220, Math.min(620, Math.round((W * H) / 3400)));
+    boids = new Array(CFG.count);
+    for (let i = 0; i < CFG.count; i++) boids[i] = new Boid();
+  }
+
+  const wrap = (v, max) => (v < 0 ? v + max : v >= max ? v - max : v);
+
+  function step(dt) {
+    grid.build(boids);
+
+    const per2 = CFG.perception * CFG.perception;
+    const sep2 = CFG.separation * CFG.separation;
+    const { cols, rows, cell, heads, next } = grid;
+
+    for (let i = 0; i < boids.length; i++) {
+      const b = boids[i];
+
+      let sx = 0, sy = 0;          // separation
+      let ax = 0, ay = 0, an = 0;  // alignment
+      let cx = 0, cy = 0, cn = 0;  // cohesion
+
+      let gx = (b.x / cell) | 0, gy = (b.y / cell) | 0;
+      if (gx < 0) gx = 0; else if (gx >= cols) gx = cols - 1;
+      if (gy < 0) gy = 0; else if (gy >= rows) gy = rows - 1;
+
+      for (let oy = -1; oy <= 1; oy++) {
+        // Cells wrap too, so flocks crossing an edge stay whole instead of
+        // tearing apart the moment they leave the screen.
+        const ry = (gy + oy + rows) % rows;
+        for (let ox = -1; ox <= 1; ox++) {
+          const rx = (gx + ox + cols) % cols;
+          for (let j = heads[ry * cols + rx]; j !== -1; j = next[j]) {
+            if (j === i) continue;
+            const o = boids[j];
+
+            // shortest offset on the torus
+            let dx = o.x - b.x, dy = o.y - b.y;
+            if (dx > W * 0.5) dx -= W; else if (dx < -W * 0.5) dx += W;
+            if (dy > H * 0.5) dy -= H; else if (dy < -H * 0.5) dy += H;
+
+            const d2 = dx * dx + dy * dy;
+            if (d2 > per2 || d2 === 0) continue;
+
+            ax += o.vx; ay += o.vy; an++;
+            cx += dx;   cy += dy;   cn++;
+
+            if (d2 < sep2) {
+              // Push weighted by 1/d: crowding hurts sharply up close.
+              const inv = 1 / Math.sqrt(d2);
+              sx -= dx * inv * inv;
+              sy -= dy * inv * inv;
+            }
+          }
+        }
+      }
+
+      let fx = 0, fy = 0;
+
+      if (sx || sy) {
+        const m = Math.hypot(sx, sy);
+        fx += (sx / m) * CFG.maxForce * CFG.wSeparation;
+        fy += (sy / m) * CFG.maxForce * CFG.wSeparation;
+      }
+      if (an) {
+        // steer toward the average heading of the neighbourhood
+        const dvx = ax / an - b.vx, dvy = ay / an - b.vy;
+        const m = Math.hypot(dvx, dvy) || 1;
+        fx += (dvx / m) * CFG.maxForce * CFG.wAlignment;
+        fy += (dvy / m) * CFG.maxForce * CFG.wAlignment;
+      }
+      if (cn) {
+        const m = Math.hypot(cx / cn, cy / cn) || 1;
+        fx += (cx / cn / m) * CFG.maxForce * CFG.wCohesion;
+        fy += (cy / cn / m) * CFG.maxForce * CFG.wCohesion;
+      }
+
+      // A slow drifting wander keeps the flock from settling into a lattice —
+      // this is what stops it looking like a screensaver.
+      b.wander += (Math.random() - 0.5) * 2.6 * dt;
+      fx += Math.cos(b.wander) * CFG.maxForce * CFG.wWander;
+      fy += Math.sin(b.wander) * CFG.maxForce * CFG.wWander;
+
+      b.vx += fx * dt;
+      b.vy += fy * dt;
+
+      const sp = Math.hypot(b.vx, b.vy);
+      if (sp > CFG.maxSpeed) { b.vx = b.vx / sp * CFG.maxSpeed; b.vy = b.vy / sp * CFG.maxSpeed; }
+      else if (sp < CFG.minSpeed) { const k = CFG.minSpeed / (sp || 1); b.vx *= k; b.vy *= k; }
+
+      b.x = wrap(b.x + b.vx * dt, W);
+      b.y = wrap(b.y + b.vy * dt, H);
+      b.flap += dt * (7 + sp * 0.045);
+    }
+  }
+
+  function plumage(y) {
+    const t = Math.min(0.999, Math.max(0, y / H)) * (PLUMAGE.length - 1);
+    const i = t | 0, f = t - i;
+    const a = PLUMAGE[i], c = PLUMAGE[Math.min(i + 1, PLUMAGE.length - 1)];
+    return `rgb(${(a[0] + (c[0] - a[0]) * f) | 0},${(a[1] + (c[1] - a[1]) * f) | 0},${(a[2] + (c[2] - a[2]) * f) | 0})`;
+  }
+
+  function draw() {
+    // Trails: instead of clearing, veil the frame with the sky itself. Old
+    // positions decay into the gradient rather than smearing toward grey.
+    ctx.globalAlpha = CFG.trailFade;
+    ctx.fillStyle = skyGradient;
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
+
+    for (let i = 0; i < boids.length; i++) {
+      const b = boids[i];
+      const ang = Math.atan2(b.vy, b.vx);
+      const s = b.size;
+      // Wing beat squashes the body across its axis.
+      const beat = 0.45 + 0.55 * Math.abs(Math.sin(b.flap));
+
+      ctx.save();
+      ctx.translate(b.x, b.y);
+      ctx.rotate(ang);
+      ctx.fillStyle = plumage(b.y);
+      ctx.beginPath();
+      ctx.moveTo(s * 1.9, 0);
+      ctx.lineTo(-s * 0.9, s * beat);
+      ctx.lineTo(-s * 0.35, 0);
+      ctx.lineTo(-s * 0.9, -s * beat);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  let last = performance.now();
+  function frame(now) {
+    // Clamp dt so a backgrounded tab resumes smoothly instead of teleporting
+    // every bird across the screen on the first frame back.
+    const dt = Math.min((now - last) / 1000, 0.05);
+    last = now;
+    step(dt);
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  window.addEventListener('resize', () => {
+    const had = boids.length;
+    resize();
+    if (!had) populate();
+    else for (const b of boids) { b.x = Math.min(b.x, W - 1); b.y = Math.min(b.y, H - 1); }
+  });
+
+  resize();
+  populate();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
