@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Analog Clock</title>
+  <style>
+    :root {
+      --bg-deep: #0a0c12;
+      --ring-outer: #1e2433;
+      --ring-inner: #2a3145;
+      --face: #0f1219;
+      --tick-major: #e8ecf4;
+      --tick-minor: #4a5568;
+      --num: #a8b2c8;
+      --hour: #f0f4fc;
+      --minute: #d4dcec;
+      --second: #ff4d6d;
+      --second-glow: rgba(255, 77, 109, 0.55);
+      --shadow: rgba(0, 0, 0, 0.55);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2rem;
+      background:
+        radial-gradient(ellipse 80% 60% at 50% 40%, #161b28 0%, var(--bg-deep) 70%),
+        var(--bg-deep);
+      font-family: "SF Pro Display", "Segoe UI", system-ui, -apple-system, sans-serif;
+      color: var(--num);
+      overflow: hidden;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background-image:
+        radial-gradient(circle at 20% 80%, rgba(122, 162, 255, 0.06) 0%, transparent 40%),
+        radial-gradient(circle at 80% 20%, rgba(255, 77, 109, 0.05) 0%, transparent 35%);
+      pointer-events: none;
+    }
+
+    .clock-wrap {
+      position: relative;
+      width: min(78vw, 420px);
+      aspect-ratio: 1;
+    }
+
+    .clock {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at 50% 45%, #151a26 0%, var(--face) 55%, #080a10 100%);
+      box-shadow:
+        0 0 0 3px var(--ring-inner),
+        0 0 0 10px var(--ring-outer),
+        0 0 0 12px #0d1018,
+        0 28px 60px var(--shadow),
+        0 0 80px rgba(122, 162, 255, 0.08),
+        inset 0 2px 4px rgba(255, 255, 255, 0.04),
+        inset 0 -8px 24px rgba(0, 0, 0, 0.4);
+      position: relative;
+    }
+
+    .clock::before {
+      content: "";
+      position: absolute;
+      inset: 8%;
+      border-radius: 50%;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      pointer-events: none;
+    }
+
+    .ticks {
+      position: absolute;
+      inset: 0;
+    }
+
+    .tick {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 2px;
+      height: 10px;
+      margin-left: -1px;
+      background: var(--tick-minor);
+      border-radius: 1px;
+      opacity: 0.7;
+    }
+
+    .tick.major {
+      width: 3px;
+      height: 16px;
+      margin-left: -1.5px;
+      background: var(--tick-major);
+      opacity: 0.95;
+      box-shadow: 0 0 6px rgba(232, 236, 244, 0.25);
+    }
+
+    .numbers {
+      position: absolute;
+      inset: 0;
+    }
+
+    .num {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 2em;
+      height: 1.2em;
+      margin: -0.6em 0 0 -1em;
+      text-align: center;
+      font-size: clamp(0.85rem, 3.2vw, 1.15rem);
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      color: var(--num);
+      user-select: none;
+    }
+
+    .hand {
+      position: absolute;
+      left: 50%;
+      bottom: 50%;
+      transform-origin: 50% 100%;
+      border-radius: 999px;
+      transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .hand.hour {
+      width: 7px;
+      height: 26%;
+      margin-left: -3.5px;
+      background: linear-gradient(to top, #8a94a8, var(--hour));
+      box-shadow: 0 0 8px rgba(0, 0, 0, 0.35);
+      z-index: 3;
+    }
+
+    .hand.hour::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      bottom: -8%;
+      width: 100%;
+      height: 16%;
+      margin-left: -50%;
+      background: inherit;
+      border-radius: inherit;
+    }
+
+    .hand.minute {
+      width: 5px;
+      height: 36%;
+      margin-left: -2.5px;
+      background: linear-gradient(to top, #7a8498, var(--minute));
+      box-shadow: 0 0 8px rgba(0, 0, 0, 0.3);
+      z-index: 4;
+    }
+
+    .hand.minute::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      bottom: -6%;
+      width: 100%;
+      height: 12%;
+      margin-left: -50%;
+      background: inherit;
+      border-radius: inherit;
+    }
+
+    .hand.second {
+      width: 2px;
+      height: 40%;
+      margin-left: -1px;
+      background: var(--second);
+      box-shadow: 0 0 12px var(--second-glow);
+      z-index: 5;
+      border-radius: 1px;
+    }
+
+    .hand.second::before {
+      content: "";
+      position: absolute;
+      left: 50%;
+      bottom: -18%;
+      width: 6px;
+      height: 18%;
+      margin-left: -3px;
+      background: var(--second);
+      border-radius: 2px;
+      box-shadow: 0 0 10px var(--second-glow);
+    }
+
+    .hand.second::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: -8%;
+      width: 8px;
+      height: 8px;
+      margin-left: -4px;
+      background: var(--second);
+      border-radius: 50%;
+      box-shadow: 0 0 10px var(--second-glow);
+    }
+
+    .pivot {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 16px;
+      height: 16px;
+      margin: -8px 0 0 -8px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, #fff, #c8d0e0 40%, #6a7288);
+      box-shadow:
+        0 0 0 3px var(--second),
+        0 0 12px var(--second-glow),
+        0 2px 4px rgba(0, 0, 0, 0.4);
+      z-index: 6;
+    }
+
+    .digital {
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.12em;
+    }
+
+    .digital .time {
+      font-size: clamp(1.4rem, 4vw, 1.85rem);
+      font-weight: 300;
+      color: #e8ecf4;
+      text-shadow: 0 0 24px rgba(122, 162, 255, 0.25);
+    }
+
+    .digital .date {
+      margin-top: 0.45rem;
+      font-size: clamp(0.75rem, 2.2vw, 0.9rem);
+      font-weight: 400;
+      color: #6b758a;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    .brand {
+      position: absolute;
+      left: 50%;
+      top: 32%;
+      transform: translateX(-50%);
+      font-size: 0.65rem;
+      letter-spacing: 0.35em;
+      text-transform: uppercase;
+      color: rgba(168, 178, 200, 0.45);
+      font-weight: 500;
+      z-index: 2;
+    }
+  </style>
+</head>
+<body>
+  <div class="clock-wrap">
+    <div class="clock" id="clock" role="img" aria-label="Live analog clock">
+      <div class="brand">Now</div>
+      <div class="ticks" id="ticks"></div>
+      <div class="numbers" id="numbers"></div>
+      <div class="hand hour" id="hour"></div>
+      <div class="hand minute" id="minute"></div>
+      <div class="hand second" id="second"></div>
+      <div class="pivot"></div>
+    </div>
+  </div>
+  <div class="digital">
+    <div class="time" id="digital">00:00:00</div>
+    <div class="date" id="date"></div>
+  </div>
+
+  <script>
+    (function () {
+      const clock = document.getElementById("clock");
+      const ticksEl = document.getElementById("ticks");
+      const numbersEl = document.getElementById("numbers");
+      const hourHand = document.getElementById("hour");
+      const minuteHand = document.getElementById("minute");
+      const secondHand = document.getElementById("second");
+      const digitalEl = document.getElementById("digital");
+      const dateEl = document.getElementById("date");
+
+      function radius() {
+        return clock.offsetWidth / 2;
+      }
+
+      function layout() {
+        const r = radius();
+        ticksEl.innerHTML = "";
+        numbersEl.innerHTML = "";
+
+        for (let i = 0; i < 60; i++) {
+          const tick = document.createElement("div");
+          const major = i % 5 === 0;
+          tick.className = "tick" + (major ? " major" : "");
+          const originY = major ? -(r * 0.76) : -(r * 0.78);
+          tick.style.transformOrigin = "center " + originY + "px";
+          tick.style.transform = "rotate(" + i * 6 + "deg)";
+          ticksEl.appendChild(tick);
+        }
+
+        const labels = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+        labels.forEach(function (n, i) {
+          const el = document.createElement("div");
+          el.className = "num";
+          el.textContent = n;
+          const angle = (i * 30 - 90) * (Math.PI / 180);
+          const nr = r * 0.62;
+          el.style.transform =
+            "translate(" + Math.cos(angle) * nr + "px, " + Math.sin(angle) * nr + "px)";
+          numbersEl.appendChild(el);
+        });
+      }
+
+      function pad(n) {
+        return String(n).padStart(2, "0");
+      }
+
+      let lastSecond = -1;
+      let secondTurns = 0;
+
+      function update() {
+        const now = new Date();
+        const h = now.getHours();
+        const m = now.getMinutes();
+        const s = now.getSeconds();
+
+        // Track full rotations so the second hand never rewinds 360°
+        if (lastSecond !== -1 && s < lastSecond) {
+          secondTurns += 1;
+        }
+        lastSecond = s;
+
+        const hourAngle = ((h % 12) + m / 60 + s / 3600) * 30;
+        const minuteAngle = (m + s / 60) * 6;
+        const secondAngle = secondTurns * 360 + s * 6;
+
+        hourHand.style.transform = "rotate(" + hourAngle + "deg)";
+        minuteHand.style.transform = "rotate(" + minuteAngle + "deg)";
+        secondHand.style.transform = "rotate(" + secondAngle + "deg)";
+
+        digitalEl.textContent = pad(h) + ":" + pad(m) + ":" + pad(s);
+        dateEl.textContent = now.toLocaleDateString(undefined, {
+          weekday: "long",
+          month: "long",
+          day: "numeric",
+        });
+      }
+
+      // Align first tick to the next whole second so it stays in sync
+      function start() {
+        layout();
+        update();
+        const delay = 1000 - (Date.now() % 1000);
+        setTimeout(function () {
+          update();
+          setInterval(update, 1000);
+        }, delay);
+      }
+
+      window.addEventListener("resize", layout);
+      start();
+    })();
+  </script>
+</body>
+</html>
