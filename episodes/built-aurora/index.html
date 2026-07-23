@@ -1,0 +1,152 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Aurora</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden}
+  #gl{display:block;width:100vw;height:100vh}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<script id="vs" type="x-shader/x-vertex">
+attribute vec2 a_pos;
+void main(){ gl_Position = vec4(a_pos, 0.0, 1.0); }
+</script>
+<script id="fs" type="x-shader/x-fragment">
+precision highp float;
+uniform vec2  u_res;
+uniform float u_time;
+
+#define TAU    6.28318530718
+#define PERIOD 8.0
+
+// cheap static hash for the starfield
+float hash(vec2 p){
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+
+void main(){
+  vec2 uv     = gl_FragCoord.xy / u_res.xy;
+  float aspect = u_res.x / u_res.y;
+  // ph advances by exactly TAU per PERIOD seconds -> everything below loops seamlessly
+  float ph = u_time * TAU / PERIOD;
+
+  // --- night sky gradient ---
+  vec3 col = mix(vec3(0.015,0.03,0.07), vec3(0.0,0.008,0.025), uv.y);
+
+  // --- starfield (static grid, looping twinkle) ---
+  vec2 sp   = uv * vec2(aspect, 1.0) * 240.0;
+  vec2 cell = floor(sp);
+  float sh  = hash(cell);
+  if(sh > 0.982){
+    vec2 f = fract(sp) - 0.5;
+    float n  = floor(sh * 6.0) + 1.0;                 // integer -> loops
+    float tw = 0.55 + 0.45 * sin(ph * n + sh * 50.0);
+    float s  = smoothstep(0.45, 0.0, length(f)) * tw;
+    col += vec3(0.85,0.9,1.0) * s * (0.4 + (sh - 0.982) * 28.0);
+  }
+
+  // --- aurora curtains: layered sin waves, no noise, no raymarch ---
+  float x = uv.x * aspect;
+  vec3 aur = vec3(0.0);
+  const int N = 4;
+  for(int i = 0; i < N; i++){
+    float fi = float(i);
+
+    // wavy crest line for this curtain (time terms are integer multiples of ph)
+    float crest = 0.52 + 0.075 * fi
+        + 0.17  * sin(x * 0.80 + fi * 2.10 + ph)
+        + 0.09  * sin(x * 1.70 - fi * 1.30 + ph * 2.0)
+        + 0.050 * sin(x * 3.40 + fi * 0.70 - ph);
+
+    float thick = 0.045 + 0.015 * fi;
+    float d     = uv.y - crest;           // >0 above the crest, <0 hanging below
+    float below = -d;
+
+    // green curtain body hangs down from the crest and fades out
+    float body = exp(-max(below, 0.0) * 4.5) * smoothstep(-0.04, 0.03, below);
+    // thin bright crest line
+    float line = thick / (d * d * 55.0 + thick);
+
+    // vertical ray striations (the hanging "curtain" texture): irregular spacing + clumping
+    float rf   = uv.x * (46.0 + 16.0 * sin(uv.x * 5.0 + fi)) + 6.0 * uv.y + 2.5 * sin(uv.x * 3.0 + ph);
+    float rays = 0.5 + 0.5 * sin(rf);
+    rays *= 0.55 + 0.45 * sin(uv.x * 9.0 - ph + fi * 2.0);   // some rays bright, some faint
+
+    float inten = (body * 1.0 + line * 0.55) * (0.45 + 0.55 * rays);
+
+    // green core, violet/pink fringe just above the crest
+    float vfr = smoothstep(0.0, 0.14, d);
+    vec3 lc = mix(vec3(0.15, 1.00, 0.50), vec3(0.80, 0.25, 1.00), vfr);
+    if(i == 3) lc = mix(vec3(0.55, 0.20, 1.00), vec3(0.95, 0.45, 1.00), 0.4 + 0.6 * vfr); // violet top curtain
+
+    aur += lc * inten;
+  }
+
+  col += aur * 0.7;
+
+  // gentle vignette
+  vec2 vg = uv - 0.5;
+  col *= 1.0 - dot(vg, vg) * 0.6;
+
+  gl_FragColor = vec4(col, 1.0);
+}
+</script>
+<script>
+(function(){
+  var canvas = document.getElementById('gl');
+  var gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+  if(!gl){ document.body.style.background = '#001'; return; }
+
+  function compile(type, src){
+    var s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if(!gl.getShaderParameter(s, gl.COMPILE_STATUS))
+      console.error(gl.getShaderInfoLog(s));
+    return s;
+  }
+
+  var prog = gl.createProgram();
+  gl.attachShader(prog, compile(gl.VERTEX_SHADER,   document.getElementById('vs').textContent));
+  gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, document.getElementById('fs').textContent));
+  gl.linkProgram(prog);
+  gl.useProgram(prog);
+
+  var buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+  var loc = gl.getAttribLocation(prog, 'a_pos');
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+  var uRes  = gl.getUniformLocation(prog, 'u_res');
+  var uTime = gl.getUniformLocation(prog, 'u_time');
+
+  function resize(){
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width  = Math.floor(window.innerWidth  * dpr);
+    canvas.height = Math.floor(window.innerHeight * dpr);
+    gl.viewport(0, 0, canvas.width, canvas.height);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  var start = performance.now();
+  function frame(now){
+    var t = ((now - start) / 1000.0) % 8.0;   // wrap to the 8s loop
+    gl.uniform2f(uRes, canvas.width, canvas.height);
+    gl.uniform1f(uTime, t);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
