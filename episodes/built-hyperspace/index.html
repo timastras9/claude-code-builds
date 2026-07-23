@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hyperspace</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden}
+  canvas{display:block;width:100vw;height:100vh}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script id="vs" type="x-shader/x-vertex">
+attribute vec2 p;
+void main(){ gl_Position = vec4(p, 0.0, 1.0); }
+</script>
+<script id="fs" type="x-shader/x-fragment">
+precision highp float;
+uniform vec2  uRes;
+uniform float uTime;   // seconds, loops on LOOP
+
+const float PI    = 3.14159265;
+const float LOOP  = 8.0;   // seamless period (seconds)
+
+// cheap hash -> [0,1)
+float hash(float n){ return fract(sin(n) * 43758.5453123); }
+
+void main(){
+  // centered, aspect-correct coords. Divide by min dimension so the
+  // warp stays circular and vertical-friendly.
+  vec2 uv = (gl_FragCoord.xy - 0.5 * uRes) / min(uRes.x, uRes.y);
+
+  float r = length(uv);                 // radius from center
+  float a = atan(uv.y, uv.x);           // angle [-PI, PI]
+
+  // phase that wraps exactly once per LOOP -> seamless motion
+  float t = uTime / LOOP;               // 0..1 over the loop
+
+  vec3 col = vec3(0.0);
+
+  // A few concentric "shells" of streaks at different angular densities.
+  // Each shell rushes outward; summed they read as dense warp streaks.
+  const int SHELLS = 4;
+  for(int i = 0; i < SHELLS; i++){
+    float fi = float(i);
+
+    // angular bucket -> one streak per bucket, hashed brightness/offset
+    float dens = 30.0 + fi * 22.0;      // streaks around the circle
+    float ai   = floor((a / (2.0*PI) + 0.5) * dens);
+    float seed = ai + fi * 57.3;
+
+    // per-streak random phase so shells don't pulse in lockstep
+    float ph   = hash(seed);
+
+    // radial travel: moves outward, wraps seamlessly (uses t, not raw time)
+    float speed = 1.0 + floor(hash(seed + 3.1) * 3.0); // integer -> loops clean
+    float rad   = fract(r * (2.2 + fi * 0.6) - (t + ph) * speed);
+
+    // sharp bright head, glowing tail toward center
+    float streak = pow(1.0 - rad, 6.0);
+
+    // thin the streaks angularly for a "light beam" look
+    float af = fract((a / (2.0*PI) + 0.5) * dens);
+    float beam = smoothstep(0.5, 0.0, abs(af - 0.5)) ;
+    beam = pow(beam, 2.0);
+
+    // brighter toward the edges (rushing at the viewer)
+    float edge = smoothstep(0.05, 0.9, r);
+
+    float b = streak * beam * edge * (0.6 + 0.7 * hash(seed + 9.0));
+
+    // blue in the core -> magenta at the rim
+    vec3 blue = vec3(0.25, 0.55, 1.0);
+    vec3 mag  = vec3(1.0, 0.25, 0.9);
+    vec3 tint = mix(blue, mag, clamp(r * 1.3, 0.0, 1.0));
+
+    col += tint * b;
+  }
+
+  // central glow core so the tunnel origin blooms
+  float core = exp(-r * 6.0);
+  col += vec3(0.5, 0.7, 1.0) * core * 0.9;
+
+  // gentle overall bloom + slight speed-lines shimmer (one sin, cheap)
+  col += col * 0.6;
+  col *= 0.9 + 0.1 * sin(uTime * 2.0 * PI / LOOP * 4.0 + r * 20.0);
+
+  // tone + vignette
+  col = col / (1.0 + col);              // reinhard, keeps highlights glowing
+  col *= smoothstep(1.15, 0.2, r);      // soft vignette
+
+  gl_FragColor = vec4(col, 1.0);
+}
+</script>
+<script>
+(function(){
+  const canvas = document.getElementById('c');
+  const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+  if(!gl){ document.body.style.background = '#101'; return; }
+
+  function compile(type, src){
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if(!gl.getShaderParameter(s, gl.COMPILE_STATUS))
+      console.error(gl.getShaderInfoLog(s));
+    return s;
+  }
+
+  const prog = gl.createProgram();
+  gl.attachShader(prog, compile(gl.VERTEX_SHADER,   document.getElementById('vs').textContent));
+  gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, document.getElementById('fs').textContent));
+  gl.linkProgram(prog);
+  gl.useProgram(prog);
+
+  // full-screen triangle
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(prog, 'p');
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+  const uRes  = gl.getUniformLocation(prog, 'uRes');
+  const uTime = gl.getUniformLocation(prog, 'uTime');
+
+  function resize(){
+    // cap DPR so the software renderer stays cheap
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    const w = Math.floor(innerWidth  * dpr);
+    const h = Math.floor(innerHeight * dpr);
+    if(canvas.width !== w || canvas.height !== h){
+      canvas.width = w; canvas.height = h;
+      gl.viewport(0, 0, w, h);
+    }
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  const LOOP = 8.0;
+  const start = performance.now();
+  function frame(now){
+    resize();
+    const t = ((now - start) / 1000) % LOOP;   // seamless 8s loop
+    gl.uniform2f(uRes, canvas.width, canvas.height);
+    gl.uniform1f(uTime, t);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
