@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Solar System</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #04060f; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d', { alpha: false });
+
+  let W = 0, H = 0, DPR = 1, CX = 0, CY = 0, R = 1;
+
+  // ---- content -------------------------------------------------------------
+  // a = orbit radius (fraction of R), r = planet radius (fraction of R),
+  // p = orbital period in seconds, tilt = ellipse flattening of the path
+  const PLANETS = [
+    { name: 'Mercury', a: 0.135, r: 0.0090, p: 7.6,   c: '#b6b0a6', c2: '#6d6660' },
+    { name: 'Venus',   a: 0.190, r: 0.0150, p: 12.4,  c: '#f0d3a0', c2: '#a5793c' },
+    { name: 'Earth',   a: 0.253, r: 0.0162, p: 19.0,  c: '#7fb8f2', c2: '#1d4f8f', moon: true },
+    { name: 'Mars',    a: 0.318, r: 0.0122, p: 28.6,  c: '#e08a5a', c2: '#8c3a1e' },
+    { name: 'Jupiter', a: 0.440, r: 0.0350, p: 56.0,  c: '#e8c9a0', c2: '#9c6b42', bands: true },
+    { name: 'Saturn',  a: 0.560, r: 0.0300, p: 84.0,  c: '#efdcae', c2: '#a4855180', ring: true },
+    { name: 'Uranus',  a: 0.665, r: 0.0210, p: 112.0, c: '#a9e4e8', c2: '#3d8b95' },
+    { name: 'Neptune', a: 0.760, r: 0.0200, p: 140.0, c: '#7f9bf0', c2: '#2b3f9b' },
+  ];
+
+  // deterministic-ish random helper
+  let seed = 20260723;
+  const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
+
+  const stars = [];
+  const dust = [];
+  const nebulae = [];
+  let comet = null;
+
+  function buildScene() {
+    stars.length = 0;
+    const count = Math.round((W * H) / 2600);
+    for (let i = 0; i < count; i++) {
+      const t = rnd();
+      stars.push({
+        x: rnd() * W,
+        y: rnd() * H,
+        r: 0.35 + t * t * 1.5,
+        a: 0.25 + rnd() * 0.75,
+        tw: 0.4 + rnd() * 2.2,          // twinkle speed
+        ph: rnd() * Math.PI * 2,
+        hue: rnd() < 0.15 ? (rnd() < 0.5 ? '#ffd9b0' : '#bcd4ff') : '#ffffff',
+      });
+    }
+
+    dust.length = 0;                     // faint asteroid belt between Mars & Jupiter
+    for (let i = 0; i < 340; i++) {
+      dust.push({
+        a: 0.360 + rnd() * 0.045,
+        ang: rnd() * Math.PI * 2,
+        sp: 0.055 + rnd() * 0.035,
+        r: 0.4 + rnd() * 1.1,
+        al: 0.15 + rnd() * 0.45,
+      });
+    }
+
+    nebulae.length = 0;
+    for (let i = 0; i < 5; i++) {
+      nebulae.push({
+        x: rnd(), y: rnd(),
+        r: 0.25 + rnd() * 0.4,
+        c: ['#3a2a7a', '#123a63', '#5a2350', '#1d4a5e', '#2c1f60'][i],
+        a: 0.16 + rnd() * 0.12,
+      });
+    }
+
+    comet = { t: rnd() * 40, next: 18 + rnd() * 22 };
+  }
+
+  // Static layers (stars + nebula) are painted once to an offscreen canvas so the
+  // per-frame cost stays tiny; twinkle is drawn on top.
+  const bg = document.createElement('canvas');
+  const bgx = bg.getContext('2d');
+
+  function paintBackground() {
+    bg.width = W; bg.height = H;
+    bgx.fillStyle = '#04060f';
+    bgx.fillRect(0, 0, W, H);
+
+    // deep-space colour wash
+    for (const n of nebulae) {
+      const nx = n.x * W, ny = n.y * H, nr = n.r * Math.max(W, H);
+      const g = bgx.createRadialGradient(nx, ny, 0, nx, ny, nr);
+      g.addColorStop(0, n.c);
+      g.addColorStop(1, 'transparent');
+      bgx.globalAlpha = n.a;
+      bgx.fillStyle = g;
+      bgx.fillRect(nx - nr, ny - nr, nr * 2, nr * 2);
+    }
+    bgx.globalAlpha = 1;
+
+    // milky-way style band of tiny stars
+    bgx.save();
+    bgx.translate(W * 0.5, H * 0.5);
+    bgx.rotate(-0.5);
+    for (let i = 0; i < 1200; i++) {
+      const x = (rnd() - 0.5) * Math.max(W, H) * 1.6;
+      const y = (rnd() - 0.5 + (rnd() - 0.5)) * Math.max(W, H) * 0.14;
+      bgx.globalAlpha = 0.06 + rnd() * 0.22;
+      bgx.fillStyle = '#cfe0ff';
+      bgx.fillRect(x, y, 1, 1);
+    }
+    bgx.restore();
+    bgx.globalAlpha = 1;
+  }
+
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = Math.floor(window.innerWidth);
+    H = Math.floor(window.innerHeight);
+    canvas.width = Math.floor(W * DPR);
+    canvas.height = Math.floor(H * DPR);
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    CX = W / 2;
+    CY = H / 2;
+
+    // The orbital plane is a squashed disk: wide, short. In a tall window that
+    // would leave the frame half empty, so open the tilt up as the window gets
+    // taller, then size the system to whichever edge binds first.
+    const aspect = H / W;
+    TILT = Math.max(0.30, Math.min(0.82, 0.42 * Math.pow(Math.max(1, aspect), 0.8)));
+
+    const OUTER = 0.80;                 // outermost orbit + a little air
+    R = Math.min((W * 0.50) / OUTER, (H * 0.50) / (OUTER * TILT));
+    seed = 20260723;
+    buildScene();
+    paintBackground();
+  }
+  window.addEventListener('resize', resize);
+
+  // ---- drawing helpers -----------------------------------------------------
+  let TILT = 0.46;            // vertical squash of the orbital plane (set in resize)
+
+  function orbitPos(pl, t) {
+    const ang = (t / pl.p) * Math.PI * 2 + pl.ph0;
+    return {
+      x: CX + Math.cos(ang) * pl.a * R,
+      y: CY + Math.sin(ang) * pl.a * R * TILT,
+      ang,
+      depth: Math.sin(ang),   // >0 = in front of the sun
+    };
+  }
+
+  PLANETS.forEach((p, i) => { p.ph0 = i * 2.1 + 0.7; });
+
+  function drawSun(t) {
+    const pulse = 1 + Math.sin(t * 0.9) * 0.02 + Math.sin(t * 2.3) * 0.01;
+    const sr = R * 0.055 * pulse;
+
+    // outer corona
+    const g1 = ctx.createRadialGradient(CX, CY, sr * 0.6, CX, CY, sr * 9);
+    g1.addColorStop(0, 'rgba(255,190,80,0.34)');
+    g1.addColorStop(0.25, 'rgba(255,140,40,0.13)');
+    g1.addColorStop(0.6, 'rgba(255,110,30,0.04)');
+    g1.addColorStop(1, 'rgba(255,100,20,0)');
+    ctx.fillStyle = g1;
+    ctx.fillRect(CX - sr * 9, CY - sr * 9, sr * 18, sr * 18);
+
+    // inner glow
+    const g2 = ctx.createRadialGradient(CX, CY, sr * 0.2, CX, CY, sr * 2.4);
+    g2.addColorStop(0, 'rgba(255,248,220,1)');
+    g2.addColorStop(0.32, 'rgba(255,206,110,0.85)');
+    g2.addColorStop(0.62, 'rgba(255,150,50,0.30)');
+    g2.addColorStop(1, 'rgba(255,120,30,0)');
+    ctx.fillStyle = g2;
+    ctx.beginPath();
+    ctx.arc(CX, CY, sr * 2.4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // core
+    const g3 = ctx.createRadialGradient(CX - sr * 0.2, CY - sr * 0.2, sr * 0.1, CX, CY, sr);
+    g3.addColorStop(0, '#fffdf3');
+    g3.addColorStop(0.55, '#ffe08a');
+    g3.addColorStop(1, '#ff9b2e');
+    ctx.fillStyle = g3;
+    ctx.beginPath();
+    ctx.arc(CX, CY, sr, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawOrbit(pl, t) {
+    const rx = pl.a * R, ry = pl.a * R * TILT;
+    ctx.save();
+    ctx.translate(CX, CY);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(150,190,255,0.13)';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // brighter comet-tail arc trailing the planet along its own path
+    const head = (t / pl.p) * Math.PI * 2 + pl.ph0;
+    const span = 1.15;
+    const grad = ctx.createLinearGradient(
+      Math.cos(head - span) * rx, Math.sin(head - span) * ry,
+      Math.cos(head) * rx, Math.sin(head) * ry
+    );
+    grad.addColorStop(0, 'rgba(160,200,255,0)');
+    grad.addColorStop(1, 'rgba(190,225,255,0.55)');
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, rx, ry, 0, head - span, head);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function shadePlanet(x, y, r, pl) {
+    // lit from the sun at centre
+    const dx = CX - x, dy = CY - y;
+    const d = Math.hypot(dx, dy) || 1;
+    const lx = x + (dx / d) * r * 0.45;
+    const ly = y + (dy / d) * r * 0.45;
+
+    const g = ctx.createRadialGradient(lx, ly, r * 0.08, x, y, r * 1.25);
+    g.addColorStop(0, pl.c);
+    g.addColorStop(0.55, pl.c2);
+    g.addColorStop(1, '#05060c');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (pl.bands) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.globalAlpha = 0.18;
+      for (let i = -3; i <= 3; i++) {
+        ctx.fillStyle = i % 2 ? '#7a4a28' : '#fff0d0';
+        ctx.fillRect(x - r, y + (i * r) / 4 - r * 0.06, r * 2, r * 0.11);
+      }
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
+
+    // atmosphere rim
+    const rim = ctx.createRadialGradient(x, y, r * 0.85, x, y, r * 1.5);
+    rim.addColorStop(0, 'rgba(255,255,255,0)');
+    rim.addColorStop(0.35, pl.c + '2e');
+    rim.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = rim;
+    ctx.beginPath();
+    ctx.arc(x, y, r * 1.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawRing(x, y, r, front) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(-0.32);
+    ctx.scale(1, 0.30);
+    const a0 = front ? 0 : Math.PI;
+    for (let i = 0; i < 3; i++) {
+      const rr = r * (1.55 + i * 0.28);
+      ctx.lineWidth = r * (0.20 - i * 0.045);
+      ctx.strokeStyle = `rgba(236,214,168,${0.5 - i * 0.13})`;
+      ctx.beginPath();
+      ctx.arc(0, 0, rr, a0, a0 + Math.PI);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawPlanet(pl, t) {
+    const pos = orbitPos(pl, t);
+    const r = Math.max(1.6, pl.r * R);
+
+    if (pl.ring) drawRing(pos.x, pos.y, r, false);
+    shadePlanet(pos.x, pos.y, r, pl);
+    if (pl.ring) drawRing(pos.x, pos.y, r, true);
+
+    if (pl.moon) {
+      const ma = t * 2.4 + 1.0;
+      const mx = pos.x + Math.cos(ma) * r * 2.6;
+      const my = pos.y + Math.sin(ma) * r * 2.6 * TILT;
+      const mr = Math.max(1, r * 0.27);
+      const g = ctx.createRadialGradient(mx - mr * 0.3, my - mr * 0.3, 0, mx, my, mr);
+      g.addColorStop(0, '#e9e6de');
+      g.addColorStop(1, '#4a4740');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(mx, my, mr, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    return pos;
+  }
+
+  function drawBelt(t) {
+    for (const d of dust) {
+      const ang = d.ang + t * d.sp;
+      const x = CX + Math.cos(ang) * d.a * R;
+      const y = CY + Math.sin(ang) * d.a * R * TILT;
+      ctx.globalAlpha = d.al;
+      ctx.fillStyle = '#cbbba4';
+      ctx.beginPath();
+      ctx.arc(x, y, d.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawStars(t) {
+    for (const s of stars) {
+      const a = s.a * (0.62 + 0.38 * Math.sin(t * s.tw + s.ph));
+      ctx.globalAlpha = a;
+      ctx.fillStyle = s.hue;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawComet(t, dt) {
+    comet.t += dt;
+    if (!comet.live && comet.t > comet.next) {
+      comet.live = true;
+      comet.x = -0.1 * W;
+      comet.y = rnd() * H * 0.7;
+      comet.vx = (W * 0.16) * (0.8 + rnd() * 0.6);
+      comet.vy = (H * 0.07) * (rnd() - 0.2);
+      comet.t = 0;
+    }
+    if (!comet.live) return;
+    comet.x += comet.vx * dt;
+    comet.y += comet.vy * dt;
+    if (comet.x > W * 1.15 || comet.y > H * 1.15) {
+      comet.live = false;
+      comet.t = 0;
+      comet.next = 14 + rnd() * 24;
+      return;
+    }
+    const len = 120;
+    const n = Math.hypot(comet.vx, comet.vy) || 1;
+    const tx = comet.x - (comet.vx / n) * len;
+    const ty = comet.y - (comet.vy / n) * len;
+    const g = ctx.createLinearGradient(comet.x, comet.y, tx, ty);
+    g.addColorStop(0, 'rgba(220,240,255,0.85)');
+    g.addColorStop(1, 'rgba(180,215,255,0)');
+    ctx.strokeStyle = g;
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(comet.x, comet.y);
+    ctx.lineTo(tx, ty);
+    ctx.stroke();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(comet.x, comet.y, 1.8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // ---- loop ----------------------------------------------------------------
+  let last = 0, t = 0;
+
+  function frame(now) {
+    const dt = last ? Math.min((now - last) / 1000, 0.05) : 0.016;
+    last = now;
+    t += dt;
+
+    ctx.drawImage(bg, 0, 0, W, H);
+    drawStars(t);
+    drawComet(t, dt);
+
+    ctx.globalCompositeOperation = 'lighter';
+    drawSun(t);
+    ctx.globalCompositeOperation = 'source-over';
+
+    for (const pl of PLANETS) drawOrbit(pl, t);
+    drawBelt(t);
+
+    // draw far side first so near planets overlap correctly
+    const order = PLANETS.slice().sort((a, b) => orbitPos(a, t).depth - orbitPos(b, t).depth);
+    for (const pl of order) drawPlanet(pl, t);
+
+    requestAnimationFrame(frame);
+  }
+
+  resize();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
