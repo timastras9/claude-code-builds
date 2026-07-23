@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Kaleidoscope</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script id="vs" type="x-shader/x-vertex">
+attribute vec2 p;
+void main() { gl_Position = vec4(p, 0.0, 1.0); }
+</script>
+<script id="fs" type="x-shader/x-fragment">
+precision highp float;
+uniform vec2 uRes;
+uniform float uPhase;      // 2*PI * t / PERIOD  -> loops seamlessly every PERIOD
+
+const float PI  = 3.14159265;
+const float TAU = 6.28318530;
+const float SEG = 8.0;     // 8-fold mirrored symmetry
+
+void main() {
+  // Centered, aspect-correct coords (vertical friendly: normalize by min side).
+  vec2 uv = (gl_FragCoord.xy - 0.5 * uRes) / min(uRes.x, uRes.y);
+
+  float r = length(uv);
+  float a = atan(uv.y, uv.x);
+
+  // Slow full-turn rotation over the loop (one full TAU per period => seamless).
+  a += uPhase;
+
+  // Kaleidoscope fold: wrap into a wedge, then mirror it.
+  float wedge = TAU / SEG;
+  a = mod(a, wedge);
+  a = abs(a - 0.5 * wedge);
+
+  // Back to a folded position; add a gentle breathing zoom (periodic).
+  float zoom = 1.0 + 0.15 * sin(uPhase);
+  vec2 q = vec2(cos(a), sin(a)) * r * zoom;
+
+  // A few cheap sin waves — every time term is an integer multiple of uPhase,
+  // so the whole field returns to itself after one period.
+  float w1 = sin(q.x * 9.0  + 2.0 * uPhase);
+  float w2 = sin(q.y * 9.0  - 2.0 * uPhase);
+  float w3 = sin(r  * 14.0  - 3.0 * uPhase);
+  float w4 = sin((q.x + q.y) * 7.0 + uPhase);
+
+  float pattern = 0.25 * (w1 + w2 + w3 + w4);   // in [-1, 1]
+
+  // Sharpen the bands a little for that faceted glass look.
+  float bands = abs(pattern);
+  float glow  = smoothstep(0.0, 0.85, 1.0 - bands);
+
+  // Cyan <-> magenta mix driven by the pattern.
+  vec3 cyan    = vec3(0.0, 0.85, 1.0);
+  vec3 magenta = vec3(1.0, 0.1, 0.75);
+  float mixv = 0.5 + 0.5 * pattern;
+  vec3 col = mix(cyan, magenta, mixv);
+
+  // Layer brightness from the bands + a soft radial vignette.
+  col *= 0.35 + 0.9 * glow;
+  col += 0.25 * pow(glow, 3.0);                 // bright ridges
+  col *= smoothstep(1.05, 0.15, r);             // vignette to black edges
+
+  gl_FragColor = vec4(col, 1.0);
+}
+</script>
+<script>
+(function () {
+  var canvas = document.getElementById('c');
+  var gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+  if (!gl) { document.body.style.background = '#000'; return; }
+
+  function compile(type, src) {
+    var s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+      console.error(gl.getShaderInfoLog(s));
+    }
+    return s;
+  }
+
+  var prog = gl.createProgram();
+  gl.attachShader(prog, compile(gl.VERTEX_SHADER, document.getElementById('vs').textContent));
+  gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, document.getElementById('fs').textContent));
+  gl.linkProgram(prog);
+  gl.useProgram(prog);
+
+  var buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+  var loc = gl.getAttribLocation(prog, 'p');
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+  var uRes   = gl.getUniformLocation(prog, 'uRes');
+  var uPhase = gl.getUniformLocation(prog, 'uPhase');
+
+  var PERIOD = 8.0;
+  var TAU = 6.28318530718;
+
+  function resize() {
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var w = Math.floor(window.innerWidth  * dpr);
+    var h = Math.floor(window.innerHeight * dpr);
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w; canvas.height = h;
+      gl.viewport(0, 0, w, h);
+    }
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  var start = null;
+  function frame(now) {
+    if (start === null) start = now;
+    var t = ((now - start) / 1000) % PERIOD;   // seamless 8s loop
+    resize();
+    gl.uniform2f(uRes, canvas.width, canvas.height);
+    gl.uniform1f(uPhase, TAU * t / PERIOD);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
