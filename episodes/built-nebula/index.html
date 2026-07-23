@@ -1,0 +1,185 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cosmic Nebula</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #050015; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+</style>
+<canvas id="c"></canvas>
+<script>
+const canvas = document.getElementById('c');
+const gl = canvas.getContext('webgl', { antialias: false, preserveDrawingBuffer: true });
+
+const vertSrc = `
+attribute vec2 p;
+void main() { gl_Position = vec4(p, 0.0, 1.0); }
+`;
+
+const fragSrc = `
+precision highp float;
+uniform vec2  u_res;
+uniform float u_time;
+
+const float PI  = 3.14159265;
+const float TAU = 6.28318530;
+
+// --- cheap value noise (hash + 4-octave fbm, no raymarch) ---
+float hash(vec2 p) {
+  p = fract(p * vec2(123.34, 345.45));
+  p += dot(p, p + 34.345);
+  return fract(p.x * p.y);
+}
+
+float vnoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);           // smoothstep
+  float a = hash(i);
+  float b = hash(i + vec2(1.0, 0.0));
+  float c = hash(i + vec2(0.0, 1.0));
+  float d = hash(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+// time-looping offset so the whole field returns to itself after 8s
+uniform vec2 u_loop;   // vec2(cos, sin) of the 8s phase
+
+float fbm(vec2 p) {
+  float sum = 0.0;
+  float amp = 0.55;
+  float freq = 1.0;
+  // drift the domain around a circle -> seamless 8s loop
+  vec2 drift = u_loop * 0.35;
+  for (int o = 0; o < 4; o++) {           // exactly 4 octaves
+    sum += amp * vnoise(p * freq + drift * freq);
+    freq *= 2.02;
+    amp  *= 0.5;
+    p += vec2(1.7, -1.3);                 // decorrelate octaves
+  }
+  return sum;
+}
+
+// twinkling star layer, periodic on the 8s loop
+float stars(vec2 uv, float density, float phase) {
+  vec2 g = uv * density;
+  vec2 i = floor(g);
+  vec2 f = fract(g) - 0.5;
+  float h = hash(i + phase);
+  // only a fraction of cells hold a star
+  float present = step(0.86, h);
+  // jittered position within the cell
+  vec2 off = (vec2(hash(i + 3.1), hash(i + 7.7)) - 0.5) * 0.7;
+  float d = length(f - off);
+  float core = present * smoothstep(0.06, 0.0, d);
+  // twinkle: integer harmonic of the loop -> seamless
+  float tw = 0.55 + 0.45 * sin(u_time * TAU / 8.0 * (1.0 + floor(h * 4.0)) + h * 40.0);
+  return core * tw;
+}
+
+void main() {
+  vec2 uv = (gl_FragCoord.xy - 0.5 * u_res) / min(u_res.x, u_res.y);
+
+  // slow swirl around center
+  float ang = 0.12 * sin(u_time * TAU / 8.0);
+  float ca = cos(ang), sa = sin(ang);
+  vec2 rv = mat2(ca, -sa, sa, ca) * uv;
+
+  // domain-warped fbm gas
+  vec2 q = rv * 2.4;
+  vec2 warp = vec2(fbm(q + vec2(0.0, 1.5)), fbm(q + vec2(2.7, -0.8)));
+  float n = fbm(q + 1.9 * warp);
+  n = pow(n, 1.35);
+
+  // a second, larger warp for billowing structure
+  float n2 = fbm(q * 0.6 - warp);
+  float clouds = clamp(n * 1.15 + n2 * 0.5, 0.0, 1.0);
+
+  // vivid palette: electric cyan -> hot magenta -> deep purple, driven by noise
+  vec3 cCyan    = vec3(0.05, 0.95, 1.05);
+  vec3 cMagenta = vec3(1.05, 0.10, 0.80);
+  vec3 cPurple  = vec3(0.32, 0.04, 0.85);
+  vec3 col = mix(cPurple, cMagenta, smoothstep(0.15, 0.72, clouds));
+  // let cyan bloom through the mid/low density bands, spread across the frame
+  float cyanMask = smoothstep(0.35, 0.85, n2 + 0.35 * warp.x - 0.15 * clouds);
+  col = mix(col, cCyan, cyanMask);
+
+  // luminous glowing cores where the gas is densest (tinted, not pure white)
+  float core = smoothstep(0.66, 1.0, clouds);
+  col += core * vec3(0.9, 0.35, 1.0) * 1.1;
+
+  // keep it bright and filling the frame, but hold some deeper valleys for depth
+  col *= (0.32 + 1.55 * clouds);
+  col += vec3(0.10, 0.02, 0.20) * (0.5 + 0.5 * n2);   // ambient nebula glow
+
+  // boost saturation so it reads electric, not pastel
+  float lum = dot(col, vec3(0.299, 0.587, 0.114));
+  col = mix(vec3(lum), col, 1.55);
+
+  // gentle vignette so edges stay part of the cloud, not black
+  float vig = 1.0 - 0.28 * dot(uv, uv);
+  col *= vig;
+
+  // hundreds of twinkling white stars across several layers
+  float s = 0.0;
+  s += stars(rv, 14.0, 0.0);
+  s += stars(rv, 26.0, 11.0);
+  s += stars(rv, 40.0, 23.0);
+  col += vec3(1.0, 0.98, 1.0) * s * 1.6;
+
+  // soft tone map to keep highlights vivid, not clipped grey
+  col = col / (col + 0.55);
+  col = pow(col, vec3(0.85));
+
+  gl_FragColor = vec4(col, 1.0);
+}
+`;
+
+function compile(type, src) {
+  const sh = gl.createShader(type);
+  gl.shaderSource(sh, src);
+  gl.compileShader(sh);
+  if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+    console.error(gl.getShaderInfoLog(sh));
+  }
+  return sh;
+}
+
+const prog = gl.createProgram();
+gl.attachShader(prog, compile(gl.VERTEX_SHADER, vertSrc));
+gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fragSrc));
+gl.linkProgram(prog);
+gl.useProgram(prog);
+
+const buf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+const loc = gl.getAttribLocation(prog, 'p');
+gl.enableVertexAttribArray(loc);
+gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+const uRes  = gl.getUniformLocation(prog, 'u_res');
+const uTime = gl.getUniformLocation(prog, 'u_time');
+const uLoop = gl.getUniformLocation(prog, 'u_loop');
+
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width  = Math.floor(window.innerWidth  * dpr);
+  canvas.height = Math.floor(window.innerHeight * dpr);
+  gl.viewport(0, 0, canvas.width, canvas.height);
+}
+window.addEventListener('resize', resize);
+resize();
+
+const start = performance.now();
+function frame(now) {
+  const t = ((now - start) / 1000) % 8.0;   // 8s seamless period
+  const phase = t * TAU_JS / 8.0;
+  gl.uniform2f(uRes, canvas.width, canvas.height);
+  gl.uniform1f(uTime, t);
+  gl.uniform2f(uLoop, Math.cos(phase), Math.sin(phase));
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  requestAnimationFrame(frame);
+}
+const TAU_JS = Math.PI * 2;
+requestAnimationFrame(frame);
+</script>
