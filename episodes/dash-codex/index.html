@@ -1,0 +1,1123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Northstar Store Analytics</title>
+  <style>
+    :root {
+      --bg: #07111f;
+      --panel: rgba(11, 24, 41, 0.82);
+      --panel-strong: rgba(14, 32, 55, 0.96);
+      --panel-soft: rgba(17, 38, 63, 0.76);
+      --border: rgba(154, 181, 214, 0.16);
+      --text: #eef4ff;
+      --muted: #8ca6c9;
+      --accent: #66d5ff;
+      --accent-2: #6ef7c8;
+      --accent-3: #ffa45c;
+      --accent-4: #d47bff;
+      --danger: #ff748f;
+      --shadow: 0 24px 70px rgba(0, 0, 0, 0.34);
+      --radius: 24px;
+      --radius-sm: 18px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+      color: var(--text);
+      font-family: "Avenir Next", "Segoe UI Variable", "Trebuchet MS", sans-serif;
+      background:
+        radial-gradient(circle at 12% 12%, rgba(102, 213, 255, 0.16), transparent 34%),
+        radial-gradient(circle at 88% 18%, rgba(212, 123, 255, 0.16), transparent 28%),
+        radial-gradient(circle at 62% 82%, rgba(110, 247, 200, 0.14), transparent 30%),
+        linear-gradient(160deg, #040a12 0%, #07111f 46%, #0b1d32 100%);
+      overflow: hidden;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+      background-size: 140px 140px;
+      mask-image: radial-gradient(circle at center, black 35%, transparent 90%);
+      opacity: 0.4;
+    }
+
+    .shell {
+      min-height: 100%;
+      padding: 22px;
+      display: grid;
+    }
+
+    .dashboard {
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      gap: 18px;
+      padding: 22px;
+      border: 1px solid var(--border);
+      border-radius: 34px;
+      background: linear-gradient(180deg, rgba(6, 16, 29, 0.9), rgba(7, 19, 33, 0.78));
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+    }
+
+    .hero {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+    }
+
+    .hero-copy {
+      max-width: 680px;
+    }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      font-size: 0.78rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--accent-2);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(1.8rem, 3.4vw, 3.4rem);
+      line-height: 0.98;
+      letter-spacing: -0.04em;
+      font-weight: 700;
+    }
+
+    .hero p {
+      margin: 12px 0 0;
+      max-width: 54ch;
+      color: var(--muted);
+      line-height: 1.55;
+      font-size: 0.98rem;
+    }
+
+    .hero-aside {
+      flex: 0 0 auto;
+      min-width: 220px;
+      padding: 16px 18px;
+      border: 1px solid rgba(102, 213, 255, 0.16);
+      border-radius: var(--radius-sm);
+      background: linear-gradient(180deg, rgba(18, 42, 69, 0.86), rgba(13, 29, 49, 0.76));
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+
+    .hero-aside-label {
+      font-size: 0.74rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .hero-aside-value {
+      margin-top: 12px;
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      font-size: 1.9rem;
+      font-weight: 700;
+      letter-spacing: -0.04em;
+    }
+
+    .hero-aside-value span {
+      font-size: 0.95rem;
+      font-weight: 500;
+      color: var(--accent-2);
+    }
+
+    .hero-aside-note {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .kpis {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .card {
+      position: relative;
+      overflow: hidden;
+      padding: 18px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background:
+        linear-gradient(180deg, rgba(17, 36, 60, 0.9), rgba(10, 25, 42, 0.84)),
+        var(--panel);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+
+    .card::after {
+      content: "";
+      position: absolute;
+      inset: auto -20% -60% auto;
+      width: 160px;
+      height: 160px;
+      border-radius: 999px;
+      background: radial-gradient(circle, rgba(102, 213, 255, 0.18), transparent 70%);
+      pointer-events: none;
+    }
+
+    .kpi-label {
+      font-size: 0.8rem;
+      color: var(--muted);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .kpi-value {
+      margin-top: 14px;
+      font-size: clamp(1.6rem, 2.4vw, 2.35rem);
+      letter-spacing: -0.04em;
+      font-weight: 700;
+    }
+
+    .kpi-foot {
+      margin-top: 10px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    .pill.up {
+      color: #d8fff0;
+      background: rgba(110, 247, 200, 0.16);
+    }
+
+    .pill.flat {
+      color: #ffe4cf;
+      background: rgba(255, 164, 92, 0.16);
+    }
+
+    .panels {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1.75fr) minmax(300px, 1fr);
+      grid-template-rows: minmax(0, 1.12fr) minmax(0, 0.88fr);
+      grid-template-areas:
+        "revenue traffic"
+        "products traffic";
+      gap: 18px;
+    }
+
+    .panel {
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      padding: 18px;
+      border-radius: 28px;
+      border: 1px solid var(--border);
+      background:
+        linear-gradient(180deg, rgba(17, 35, 57, 0.9), rgba(9, 22, 38, 0.88)),
+        var(--panel-strong);
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 1.05rem;
+      font-weight: 650;
+      letter-spacing: -0.02em;
+    }
+
+    .panel-subtitle {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .panel-metric {
+      text-align: right;
+      font-size: 0.88rem;
+      color: var(--muted);
+    }
+
+    .panel-metric strong {
+      display: block;
+      margin-top: 4px;
+      font-size: 1.12rem;
+      color: var(--text);
+      letter-spacing: -0.03em;
+    }
+
+    #revenue-panel {
+      grid-area: revenue;
+    }
+
+    #products-panel {
+      grid-area: products;
+    }
+
+    #traffic-panel {
+      grid-area: traffic;
+    }
+
+    .chart-frame {
+      position: relative;
+      flex: 1 1 auto;
+      min-height: 280px;
+      padding: 10px;
+      border-radius: 22px;
+      background: linear-gradient(180deg, rgba(6, 16, 29, 0.84), rgba(7, 16, 28, 0.66));
+      border: 1px solid rgba(154, 181, 214, 0.08);
+    }
+
+    .chart-frame svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .chart-badge {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      padding: 8px 10px;
+      border-radius: 14px;
+      background: rgba(102, 213, 255, 0.08);
+      border: 1px solid rgba(102, 213, 255, 0.12);
+      color: #dff7ff;
+      font-size: 0.8rem;
+    }
+
+    .traffic-layout {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: minmax(240px, 1fr) auto;
+      gap: 12px;
+    }
+
+    .traffic-chart {
+      position: relative;
+      min-height: 0;
+      border-radius: 24px;
+      padding: 8px;
+      background: linear-gradient(180deg, rgba(6, 16, 29, 0.84), rgba(7, 16, 28, 0.66));
+      border: 1px solid rgba(154, 181, 214, 0.08);
+    }
+
+    .traffic-chart svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .traffic-center {
+      position: absolute;
+      inset: 50% auto auto 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      pointer-events: none;
+    }
+
+    .traffic-center span {
+      display: block;
+      font-size: 0.76rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .traffic-center strong {
+      display: block;
+      margin-top: 8px;
+      font-size: clamp(1.45rem, 2vw, 2rem);
+      letter-spacing: -0.05em;
+    }
+
+    .traffic-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .traffic-row {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 12px 14px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.028);
+      border: 1px solid rgba(255, 255, 255, 0.04);
+    }
+
+    .swatch {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.02);
+    }
+
+    .traffic-name {
+      font-size: 0.95rem;
+      font-weight: 600;
+    }
+
+    .traffic-meta {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    .traffic-share {
+      text-align: right;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+    }
+
+    .footer-note {
+      margin-top: auto;
+      padding-top: 6px;
+      color: rgba(140, 166, 201, 0.78);
+      font-size: 0.82rem;
+    }
+
+    .fade-in {
+      opacity: 0;
+      transform: translateY(12px);
+      animation: fadeUp 720ms forwards;
+    }
+
+    .delay-1 { animation-delay: 60ms; }
+    .delay-2 { animation-delay: 120ms; }
+    .delay-3 { animation-delay: 180ms; }
+    .delay-4 { animation-delay: 240ms; }
+    .delay-5 { animation-delay: 300ms; }
+
+    @keyframes fadeUp {
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @media (max-width: 1180px) {
+      html,
+      body {
+        overflow: auto;
+      }
+
+      .shell {
+        min-height: 100vh;
+      }
+
+      .dashboard {
+        min-height: auto;
+      }
+
+      .kpis {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .panels {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto;
+        grid-template-areas:
+          "revenue"
+          "traffic"
+          "products";
+      }
+
+      #revenue-panel,
+      #products-panel {
+        min-height: 380px;
+      }
+
+      #traffic-panel {
+        min-height: 520px;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .shell {
+        padding: 12px;
+      }
+
+      .dashboard {
+        padding: 14px;
+        border-radius: 24px;
+      }
+
+      .hero {
+        flex-direction: column;
+      }
+
+      .hero-aside {
+        width: 100%;
+      }
+
+      .kpis {
+        grid-template-columns: 1fr;
+      }
+
+      .panel-header {
+        flex-direction: column;
+      }
+
+      .panel-metric {
+        text-align: left;
+      }
+
+      #revenue-panel,
+      #products-panel,
+      #traffic-panel {
+        min-height: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <main class="dashboard">
+      <section class="hero fade-in">
+        <div class="hero-copy">
+          <p class="eyebrow">Northstar Commerce</p>
+          <h1>Store performance at a glance.</h1>
+          <p>Last 12 months of revenue, order volume, product mix, and acquisition channels for a growing direct-to-consumer shop.</p>
+        </div>
+        <aside class="hero-aside">
+          <div class="hero-aside-label">Revenue Momentum</div>
+          <div class="hero-aside-value" id="growth-value">0% <span>since start</span></div>
+          <div class="hero-aside-note" id="growth-note">Based on the first month in the visible period.</div>
+        </aside>
+      </section>
+
+      <section class="kpis" id="kpis"></section>
+
+      <section class="panels">
+        <article class="panel fade-in delay-2" id="revenue-panel">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Revenue Over Time</h2>
+              <p class="panel-subtitle">Monthly gross revenue with order trend highlights.</p>
+            </div>
+            <div class="panel-metric">
+              Strongest month
+              <strong id="best-month">-</strong>
+            </div>
+          </div>
+          <div class="chart-frame">
+            <div class="chart-badge" id="line-summary">-</div>
+            <svg id="revenue-chart" role="img" aria-label="Revenue over time line chart"></svg>
+          </div>
+        </article>
+
+        <article class="panel fade-in delay-3" id="products-panel">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Top Products</h2>
+              <p class="panel-subtitle">Highest revenue contributors across the trailing twelve months.</p>
+            </div>
+            <div class="panel-metric">
+              Best seller
+              <strong id="top-product-name">-</strong>
+            </div>
+          </div>
+          <div class="chart-frame">
+            <svg id="products-chart" role="img" aria-label="Top products revenue bar chart"></svg>
+          </div>
+        </article>
+
+        <article class="panel fade-in delay-4" id="traffic-panel">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Traffic Sources</h2>
+              <p class="panel-subtitle">Acquisition split by sessions, with channel-level demand and revenue.</p>
+            </div>
+            <div class="panel-metric">
+              Top channel
+              <strong id="top-source-name">-</strong>
+            </div>
+          </div>
+          <div class="traffic-layout">
+            <div class="traffic-chart">
+              <svg id="traffic-chart" role="img" aria-label="Traffic source donut chart"></svg>
+              <div class="traffic-center">
+                <span>Total Sessions</span>
+                <strong id="traffic-total">-</strong>
+              </div>
+            </div>
+            <div class="traffic-list" id="traffic-list"></div>
+          </div>
+          <div class="footer-note">Sample data is generated client-side and re-scaled for the current viewport.</div>
+        </article>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const svgNS = "http://www.w3.org/2000/svg";
+    const monthFormatter = new Intl.DateTimeFormat("en-US", { month: "short" });
+    const longMonthFormatter = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" });
+    const currencyFormatter = new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 0
+    });
+    const shortCurrencyFormatter = new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      notation: "compact",
+      maximumFractionDigits: 1
+    });
+    const numberFormatter = new Intl.NumberFormat("en-US");
+
+    function clamp(value, min, max) {
+      return Math.min(max, Math.max(min, value));
+    }
+
+    function sum(list, key) {
+      return list.reduce((total, item) => total + item[key], 0);
+    }
+
+    function formatPercent(value) {
+      return `${value.toFixed(1)}%`;
+    }
+
+    function formatDelta(value) {
+      const sign = value >= 0 ? "+" : "";
+      return `${sign}${value.toFixed(1)}%`;
+    }
+
+    function getLast12Months() {
+      const now = new Date();
+      const months = [];
+      for (let offset = 11; offset >= 0; offset -= 1) {
+        const date = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+        months.push(date);
+      }
+      return months;
+    }
+
+    function generateData() {
+      const months = getLast12Months();
+      const monthlyData = months.map((date, index) => {
+        const month = date.getMonth();
+        const seasonalVisitors = [0.92, 0.9, 0.94, 0.98, 1.02, 1.05, 1.08, 1.1, 1.12, 1.18, 1.28, 1.23][month];
+        const seasonalSpend = [0.96, 0.94, 0.97, 1.0, 1.02, 1.03, 1.04, 1.08, 1.11, 1.16, 1.34, 1.22][month];
+        const visitors = Math.round((18200 + index * 980 + Math.sin(index * 0.7) * 540) * seasonalVisitors);
+        const conversionRate = 2.08 + index * 0.07 + Math.cos(index * 0.6) * 0.09;
+        const orders = Math.round(visitors * (conversionRate / 100));
+        const aov = (96 + index * 2.1 + Math.sin(index * 0.45) * 4.6) * seasonalSpend;
+        const revenue = Math.round(orders * aov);
+        return {
+          date,
+          label: monthFormatter.format(date),
+          fullLabel: longMonthFormatter.format(date),
+          visitors,
+          orders,
+          revenue,
+          conversionRate,
+          averageOrderValue: revenue / orders
+        };
+      });
+
+      const totalRevenue = Math.round(sum(monthlyData, "revenue"));
+      const totalOrders = sum(monthlyData, "orders");
+      const totalVisitors = sum(monthlyData, "visitors");
+      const averageOrderValue = totalRevenue / totalOrders;
+      const conversionRate = (totalOrders / totalVisitors) * 100;
+
+      const kpis = [
+        {
+          label: "Total Revenue",
+          value: currencyFormatter.format(totalRevenue),
+          delta: 18.4,
+          tone: "up",
+          foot: "Trailing 12 months"
+        },
+        {
+          label: "Orders",
+          value: numberFormatter.format(totalOrders),
+          delta: 14.7,
+          tone: "up",
+          foot: "Completed checkouts"
+        },
+        {
+          label: "Average Order Value",
+          value: currencyFormatter.format(Math.round(averageOrderValue)),
+          delta: 3.2,
+          tone: "flat",
+          foot: "Revenue per order"
+        },
+        {
+          label: "Conversion Rate",
+          value: formatPercent(conversionRate),
+          delta: 0.6,
+          tone: "up",
+          foot: "Orders / sessions"
+        }
+      ];
+
+      const products = [
+        { name: "Aurora Lamp", price: 128, share: 0.245, momentum: 13.2, color: "#66d5ff" },
+        { name: "Lumen Desk", price: 264, share: 0.196, momentum: 10.4, color: "#6ef7c8" },
+        { name: "Halo Speaker", price: 179, share: 0.163, momentum: 8.1, color: "#ffa45c" },
+        { name: "Terra Throw", price: 88, share: 0.149, momentum: 6.8, color: "#d47bff" },
+        { name: "Drift Diffuser", price: 62, share: 0.132, momentum: 5.4, color: "#83a9ff" },
+        { name: "Cloud Mug", price: 36, share: 0.115, momentum: 4.1, color: "#ff748f" }
+      ].map((product, index) => {
+        const revenue = Math.round(totalRevenue * product.share);
+        const units = Math.round(revenue / product.price);
+        return {
+          ...product,
+          revenue,
+          units,
+          rank: index + 1
+        };
+      });
+
+      const sourcesSeed = [
+        { name: "Organic Search", share: 0.35, convWeight: 1.04, aovWeight: 1.02, color: "#66d5ff" },
+        { name: "Paid Social", share: 0.22, convWeight: 0.9, aovWeight: 0.97, color: "#d47bff" },
+        { name: "Direct", share: 0.18, convWeight: 1.17, aovWeight: 1.08, color: "#6ef7c8" },
+        { name: "Email", share: 0.12, convWeight: 1.3, aovWeight: 1.14, color: "#ffa45c" },
+        { name: "Referral", share: 0.08, convWeight: 0.96, aovWeight: 1.01, color: "#83a9ff" },
+        { name: "Affiliates", share: 0.05, convWeight: 0.88, aovWeight: 0.95, color: "#ff748f" }
+      ];
+
+      const orderWeightTotal = sourcesSeed.reduce((acc, source) => acc + source.share * source.convWeight, 0);
+      const revenueWeightTotal = sourcesSeed.reduce((acc, source) => acc + source.share * source.convWeight * source.aovWeight, 0);
+      const sources = sourcesSeed.map((source) => {
+        const sessions = Math.round(totalVisitors * source.share);
+        const orders = Math.round(totalOrders * ((source.share * source.convWeight) / orderWeightTotal));
+        const revenue = Math.round(totalRevenue * ((source.share * source.convWeight * source.aovWeight) / revenueWeightTotal));
+        return {
+          ...source,
+          sessions,
+          orders,
+          revenue,
+          conversionRate: (orders / sessions) * 100
+        };
+      });
+
+      return {
+        monthlyData,
+        kpis,
+        products,
+        sources,
+        totals: {
+          revenue: totalRevenue,
+          orders: totalOrders,
+          visitors: totalVisitors,
+          averageOrderValue,
+          conversionRate
+        }
+      };
+    }
+
+    function createSVGElement(tag, attributes) {
+      const element = document.createElementNS(svgNS, tag);
+      Object.entries(attributes).forEach(([key, value]) => {
+        element.setAttribute(key, value);
+      });
+      return element;
+    }
+
+    function clearNode(node) {
+      while (node.firstChild) {
+        node.removeChild(node.firstChild);
+      }
+    }
+
+    function renderKpis(data) {
+      const container = document.getElementById("kpis");
+      container.innerHTML = "";
+      data.kpis.forEach((kpi, index) => {
+        const article = document.createElement("article");
+        article.className = `card fade-in delay-${Math.min(index + 1, 5)}`;
+        article.innerHTML = `
+          <div class="kpi-label">${kpi.label}</div>
+          <div class="kpi-value">${kpi.value}</div>
+          <div class="kpi-foot">
+            <span class="pill ${kpi.tone}">${formatDelta(kpi.delta)}</span>
+            <span>${kpi.foot}</span>
+          </div>
+        `;
+        container.appendChild(article);
+      });
+    }
+
+    function renderRevenueChart(monthlyData) {
+      const svg = document.getElementById("revenue-chart");
+      clearNode(svg);
+
+      const bounds = svg.getBoundingClientRect();
+      const width = Math.max(bounds.width, 320);
+      const height = Math.max(bounds.height, 280);
+      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+      const margin = {
+        top: 20,
+        right: 18,
+        bottom: 36,
+        left: width < 420 ? 44 : 62
+      };
+      const innerWidth = width - margin.left - margin.right;
+      const innerHeight = height - margin.top - margin.bottom;
+      const maxRevenue = Math.max(...monthlyData.map((month) => month.revenue));
+      const minRevenue = Math.min(...monthlyData.map((month) => month.revenue));
+      const valueFloor = Math.floor(minRevenue * 0.88 / 1000) * 1000;
+      const valueCeil = Math.ceil(maxRevenue * 1.08 / 1000) * 1000;
+      const yTicks = 5;
+      const xStep = innerWidth / (monthlyData.length - 1);
+
+      const plot = createSVGElement("g", {});
+      svg.appendChild(plot);
+
+      for (let i = 0; i < yTicks; i += 1) {
+        const tickValue = valueCeil - ((valueCeil - valueFloor) / (yTicks - 1)) * i;
+        const y = margin.top + (innerHeight / (yTicks - 1)) * i;
+        plot.appendChild(createSVGElement("line", {
+          x1: margin.left,
+          y1: y,
+          x2: width - margin.right,
+          y2: y,
+          stroke: "rgba(154,181,214,0.14)",
+          "stroke-width": "1"
+        }));
+        const label = createSVGElement("text", {
+          x: margin.left - 10,
+          y: y + 4,
+          "text-anchor": "end",
+          fill: "rgba(140,166,201,0.82)",
+          "font-size": width < 480 ? "10.5" : "11.5",
+          "font-family": "Avenir Next, Segoe UI Variable, Trebuchet MS, sans-serif"
+        });
+        label.textContent = shortCurrencyFormatter.format(tickValue);
+        plot.appendChild(label);
+      }
+
+      const gradient = createSVGElement("defs", {});
+      const areaGradient = createSVGElement("linearGradient", {
+        id: "lineAreaGradient",
+        x1: "0",
+        y1: "0",
+        x2: "0",
+        y2: "1"
+      });
+      areaGradient.appendChild(createSVGElement("stop", {
+        offset: "0%",
+        "stop-color": "#66d5ff",
+        "stop-opacity": "0.34"
+      }));
+      areaGradient.appendChild(createSVGElement("stop", {
+        offset: "100%",
+        "stop-color": "#66d5ff",
+        "stop-opacity": "0"
+      }));
+      gradient.appendChild(areaGradient);
+      svg.appendChild(gradient);
+
+      const points = monthlyData.map((month, index) => {
+        const x = margin.left + xStep * index;
+        const y = margin.top + innerHeight - ((month.revenue - valueFloor) / (valueCeil - valueFloor)) * innerHeight;
+        return { x, y, ...month };
+      });
+
+      const linePath = points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
+      const areaPath = `${linePath} L ${points[points.length - 1].x} ${margin.top + innerHeight} L ${points[0].x} ${margin.top + innerHeight} Z`;
+
+      plot.appendChild(createSVGElement("path", {
+        d: areaPath,
+        fill: "url(#lineAreaGradient)"
+      }));
+
+      plot.appendChild(createSVGElement("path", {
+        d: linePath,
+        fill: "none",
+        stroke: "#66d5ff",
+        "stroke-width": width < 480 ? "3" : "3.5",
+        "stroke-linecap": "round",
+        "stroke-linejoin": "round"
+      }));
+
+      points.forEach((point, index) => {
+        const isPeak = point.revenue === maxRevenue;
+        plot.appendChild(createSVGElement("circle", {
+          cx: point.x,
+          cy: point.y,
+          r: isPeak ? "5.5" : "4.2",
+          fill: isPeak ? "#6ef7c8" : "#07111f",
+          stroke: isPeak ? "#6ef7c8" : "#66d5ff",
+          "stroke-width": "2.4"
+        }));
+
+        if (isPeak) {
+          const bubbleWidth = width < 480 ? 96 : 112;
+          const bubbleX = clamp(point.x - bubbleWidth / 2, margin.left, width - margin.right - bubbleWidth);
+          const bubbleY = Math.max(point.y - 46, margin.top);
+          plot.appendChild(createSVGElement("rect", {
+            x: bubbleX,
+            y: bubbleY,
+            width: bubbleWidth,
+            height: 30,
+            rx: 10,
+            fill: "rgba(110,247,200,0.12)",
+            stroke: "rgba(110,247,200,0.3)"
+          }));
+          const bubbleText = createSVGElement("text", {
+            x: bubbleX + bubbleWidth / 2,
+            y: bubbleY + 19,
+            "text-anchor": "middle",
+            fill: "#e6fff7",
+            "font-size": "11.5",
+            "font-family": "Avenir Next, Segoe UI Variable, Trebuchet MS, sans-serif"
+          });
+          bubbleText.textContent = `${point.label} ${shortCurrencyFormatter.format(point.revenue)}`;
+          plot.appendChild(bubbleText);
+        }
+
+        const showLabel = width >= 430 || index % 2 === 0 || index === points.length - 1;
+        if (showLabel) {
+          const tick = createSVGElement("text", {
+            x: point.x,
+            y: height - 12,
+            "text-anchor": "middle",
+            fill: "rgba(140,166,201,0.82)",
+            "font-size": width < 480 ? "10.5" : "11.5",
+            "font-family": "Avenir Next, Segoe UI Variable, Trebuchet MS, sans-serif"
+          });
+          tick.textContent = point.label;
+          plot.appendChild(tick);
+        }
+
+        if (index < points.length - 1) {
+          plot.appendChild(createSVGElement("line", {
+            x1: point.x,
+            y1: margin.top,
+            x2: point.x,
+            y2: margin.top + innerHeight,
+            stroke: "rgba(154,181,214,0.05)",
+            "stroke-width": "1"
+          }));
+        }
+      });
+
+      const bestMonth = monthlyData.reduce((best, month) => month.revenue > best.revenue ? month : best, monthlyData[0]);
+      document.getElementById("best-month").textContent = `${bestMonth.label} ${currencyFormatter.format(bestMonth.revenue)}`;
+      document.getElementById("line-summary").textContent = `${monthlyData[monthlyData.length - 1].label} closed at ${shortCurrencyFormatter.format(monthlyData[monthlyData.length - 1].revenue)}`;
+    }
+
+    function renderProductsChart(products) {
+      const svg = document.getElementById("products-chart");
+      clearNode(svg);
+
+      const bounds = svg.getBoundingClientRect();
+      const width = Math.max(bounds.width, 320);
+      const height = Math.max(bounds.height, 280);
+      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+      const margin = {
+        top: 18,
+        right: 18,
+        bottom: 24,
+        left: width < 420 ? 110 : 138
+      };
+      const innerWidth = width - margin.left - margin.right;
+      const innerHeight = height - margin.top - margin.bottom;
+      const maxRevenue = Math.max(...products.map((product) => product.revenue));
+      const barGap = 14;
+      const barHeight = (innerHeight - barGap * (products.length - 1)) / products.length;
+
+      const group = createSVGElement("g", {});
+      svg.appendChild(group);
+
+      products.forEach((product, index) => {
+        const y = margin.top + index * (barHeight + barGap);
+        const widthScale = (product.revenue / maxRevenue) * innerWidth;
+
+        group.appendChild(createSVGElement("rect", {
+          x: margin.left,
+          y,
+          width: innerWidth,
+          height: barHeight,
+          rx: Math.min(16, barHeight / 2),
+          fill: "rgba(255,255,255,0.04)"
+        }));
+
+        group.appendChild(createSVGElement("rect", {
+          x: margin.left,
+          y,
+          width: widthScale,
+          height: barHeight,
+          rx: Math.min(16, barHeight / 2),
+          fill: product.color
+        }));
+
+        const label = createSVGElement("text", {
+          x: 12,
+          y: y + barHeight / 2 - 2,
+          fill: "#eef4ff",
+          "font-size": width < 480 ? "11.5" : "12.5",
+          "font-weight": "600",
+          "font-family": "Avenir Next, Segoe UI Variable, Trebuchet MS, sans-serif"
+        });
+        label.textContent = product.name;
+        group.appendChild(label);
+
+        const meta = createSVGElement("text", {
+          x: 12,
+          y: y + barHeight / 2 + 14,
+          fill: "rgba(140,166,201,0.82)",
+          "font-size": width < 480 ? "10.5" : "11.5",
+          "font-family": "Avenir Next, Segoe UI Variable, Trebuchet MS, sans-serif"
+        });
+        meta.textContent = `${numberFormatter.format(product.units)} units`;
+        group.appendChild(meta);
+
+        const value = createSVGElement("text", {
+          x: margin.left + widthScale - 10,
+          y: y + barHeight / 2 + 4,
+          "text-anchor": widthScale < 110 ? "start" : "end",
+          fill: widthScale < 110 ? "#eef4ff" : "#07111f",
+          "font-size": width < 480 ? "11" : "12",
+          "font-weight": "700",
+          "font-family": "Avenir Next, Segoe UI Variable, Trebuchet MS, sans-serif"
+        });
+        value.setAttribute("x", widthScale < 110 ? margin.left + widthScale + 10 : margin.left + widthScale - 10);
+        value.textContent = shortCurrencyFormatter.format(product.revenue);
+        group.appendChild(value);
+      });
+
+      document.getElementById("top-product-name").textContent = products[0].name;
+    }
+
+    function polarToCartesian(cx, cy, radius, angleInDegrees) {
+      const angleInRadians = ((angleInDegrees - 90) * Math.PI) / 180;
+      return {
+        x: cx + radius * Math.cos(angleInRadians),
+        y: cy + radius * Math.sin(angleInRadians)
+      };
+    }
+
+    function describeArc(cx, cy, radius, startAngle, endAngle) {
+      const start = polarToCartesian(cx, cy, radius, endAngle);
+      const end = polarToCartesian(cx, cy, radius, startAngle);
+      const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
+      return [
+        "M", start.x, start.y,
+        "A", radius, radius, 0, largeArcFlag, 0, end.x, end.y
+      ].join(" ");
+    }
+
+    function renderTraffic(data) {
+      const svg = document.getElementById("traffic-chart");
+      clearNode(svg);
+
+      const bounds = svg.getBoundingClientRect();
+      const width = Math.max(bounds.width, 280);
+      const height = Math.max(bounds.height, 280);
+      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+      const centerX = width / 2;
+      const centerY = height / 2;
+      const radius = Math.min(width, height) * 0.33;
+      const strokeWidth = Math.max(24, radius * 0.36);
+      let currentAngle = 0;
+
+      svg.appendChild(createSVGElement("circle", {
+        cx: centerX,
+        cy: centerY,
+        r: radius,
+        fill: "none",
+        stroke: "rgba(255,255,255,0.055)",
+        "stroke-width": strokeWidth
+      }));
+
+      data.sources.forEach((source) => {
+        const sweep = source.share * 360;
+        const path = createSVGElement("path", {
+          d: describeArc(centerX, centerY, radius, currentAngle, currentAngle + sweep),
+          fill: "none",
+          stroke: source.color,
+          "stroke-width": strokeWidth,
+          "stroke-linecap": "round",
+          opacity: "0.96"
+        });
+        svg.appendChild(path);
+        currentAngle += sweep;
+      });
+
+      const list = document.getElementById("traffic-list");
+      list.innerHTML = "";
+      data.sources.forEach((source) => {
+        const row = document.createElement("div");
+        row.className = "traffic-row";
+        row.innerHTML = `
+          <span class="swatch" style="background:${source.color}"></span>
+          <div>
+            <div class="traffic-name">${source.name}</div>
+            <div class="traffic-meta">${numberFormatter.format(source.sessions)} sessions · ${currencyFormatter.format(source.revenue)} revenue</div>
+          </div>
+          <div class="traffic-share">${formatPercent(source.share * 100)}</div>
+        `;
+        list.appendChild(row);
+      });
+
+      document.getElementById("top-source-name").textContent = data.sources[0].name;
+      document.getElementById("traffic-total").textContent = numberFormatter.format(data.totals.visitors);
+    }
+
+    function renderHeader(data) {
+      const firstMonth = data.monthlyData[0];
+      const lastMonth = data.monthlyData[data.monthlyData.length - 1];
+      const growth = ((lastMonth.revenue - firstMonth.revenue) / firstMonth.revenue) * 100;
+      document.getElementById("growth-value").innerHTML = `${formatDelta(growth)} <span>since ${firstMonth.label}</span>`;
+      document.getElementById("growth-note").textContent = `${lastMonth.fullLabel} closed at ${currencyFormatter.format(lastMonth.revenue)} after a ${formatDelta(growth)} move from ${firstMonth.fullLabel}.`;
+    }
+
+    const storeData = generateData();
+
+    function renderAll() {
+      renderHeader(storeData);
+      renderKpis(storeData);
+      renderRevenueChart(storeData.monthlyData);
+      renderProductsChart(storeData.products);
+      renderTraffic(storeData);
+    }
+
+    window.addEventListener("resize", renderAll);
+    renderAll();
+  </script>
+</body>
+</html>
